@@ -1,0 +1,12 @@
+{
+  "name": "todo-api",
+  "version": "1.0.0",
+  "description": "HTTP JSON API for a todo list, persisting tasks to a JSON file.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "license": "UNLICENSED"
+}
