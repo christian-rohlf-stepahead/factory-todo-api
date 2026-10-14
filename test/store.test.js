@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { TaskStore } from '../src/store.js';
@@ -19,11 +19,21 @@ test('creates a task with a unique id and not-done status', async () => {
 
   assert.equal(a.title, 'Buy milk');
   assert.equal(a.completed, false);
+  assert.equal(a.due, null);
   assert.ok(a.id);
   assert.notEqual(a.id, b.id);
 });
 
-test('lists all tasks with id, title and completion status', async () => {
+test('creates a task with a due date', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const task = await store.create('Renew passport', '2026-11-01');
+
+  assert.equal(task.due, '2026-11-01');
+});
+
+test('lists all tasks with id, title, completion status and due date', async () => {
   const store = new TaskStore(await tempDbPath());
   await store.load();
 
@@ -32,7 +42,7 @@ test('lists all tasks with id, title and completion status', async () => {
   const tasks = store.list();
 
   assert.equal(tasks.length, 2);
-  assert.deepEqual(Object.keys(tasks[0]).sort(), ['completed', 'id', 'title']);
+  assert.deepEqual(Object.keys(tasks[0]).sort(), ['completed', 'due', 'id', 'title']);
 });
 
 test('marks a task complete and reopens it by id', async () => {
@@ -55,6 +65,24 @@ test('deletes a task by id', async () => {
   await store.delete(task.id);
 
   assert.deepEqual(store.list(), []);
+});
+
+test('sets and clears a due date independently of completed', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+  const task = await store.create('Buy milk');
+
+  const withDue = await store.update(task.id, { due: '2026-11-01' });
+  assert.equal(withDue.due, '2026-11-01');
+  assert.equal(withDue.completed, false);
+
+  const completedToo = await store.update(task.id, { completed: true });
+  assert.equal(completedToo.completed, true);
+  assert.equal(completedToo.due, '2026-11-01');
+
+  const cleared = await store.update(task.id, { due: null });
+  assert.equal(cleared.due, null);
+  assert.equal(cleared.completed, true);
 });
 
 test('throws a TaskNotFoundError for an unknown id', async () => {
@@ -84,6 +112,18 @@ test('persists tasks to the JSON file so they survive a restart', async () => {
   const second = new TaskStore(dbPath);
   await second.load();
   assert.deepEqual(second.list(), [
-    { id: task.id, title: 'Buy milk', completed: true },
+    { id: task.id, title: 'Buy milk', completed: true, due: null },
+  ]);
+});
+
+test('loads pre-existing tasks written before due dates existed, defaulting due to null', async () => {
+  const dbPath = await tempDbPath();
+  await writeFile(dbPath, JSON.stringify([{ id: 'legacy-1', title: 'Buy milk', completed: false }]));
+
+  const store = new TaskStore(dbPath);
+  await store.load();
+
+  assert.deepEqual(store.list(), [
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null },
   ]);
 });

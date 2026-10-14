@@ -1,5 +1,5 @@
 import { createServer as createHttpServer } from 'node:http';
-import { TaskStore, TaskNotFoundError } from './store.js';
+import { TaskStore, TaskNotFoundError, isValidDueDate } from './store.js';
 
 function sendJson(res, status, body) {
   const data = JSON.stringify(body);
@@ -43,7 +43,15 @@ export async function createServer({ dbPath }) {
           sendJson(res, 400, { error: 'A non-empty "title" is required.' });
           return;
         }
-        const task = await store.create(title);
+        let due = null;
+        if ('due' in body) {
+          if (!isValidDueDate(body.due)) {
+            sendJson(res, 400, { error: '"due" must be a valid "YYYY-MM-DD" date.' });
+            return;
+          }
+          due = body.due;
+        }
+        const task = await store.create(title, due);
         sendJson(res, 201, task);
         return;
       }
@@ -51,11 +59,25 @@ export async function createServer({ dbPath }) {
       if (segments.length === 2 && req.method === 'PATCH') {
         const id = segments[1];
         const body = await readJsonBody(req);
-        if (typeof body.completed !== 'boolean') {
+        const hasCompleted = 'completed' in body;
+        const hasDue = 'due' in body;
+
+        if (!hasCompleted && !hasDue) {
+          sendJson(res, 400, { error: 'At least one of "completed" or "due" must be provided.' });
+          return;
+        }
+        if (hasCompleted && typeof body.completed !== 'boolean') {
           sendJson(res, 400, { error: '"completed" must be a boolean.' });
           return;
         }
-        const task = await store.setCompleted(id, body.completed);
+        if (hasDue && body.due !== null && !isValidDueDate(body.due)) {
+          sendJson(res, 400, { error: '"due" must be a valid "YYYY-MM-DD" date, or null.' });
+          return;
+        }
+        const patch = {};
+        if (hasCompleted) patch.completed = body.completed;
+        if (hasDue) patch.due = body.due;
+        const task = await store.update(id, patch);
         sendJson(res, 200, task);
         return;
       }

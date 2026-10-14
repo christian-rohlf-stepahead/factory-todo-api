@@ -37,16 +37,21 @@ npm test
 All request and response bodies are JSON. A task has the shape:
 
 ```json
-{ "id": "...", "title": "...", "completed": false }
+{ "id": "...", "title": "...", "completed": false, "due": null }
 ```
+
+`due` is an optional due date as an ISO `YYYY-MM-DD` string, or `null` if none
+is set.
 
 ### `POST /tasks`
 
 Create a task.
 
-Request body: `{ "title": "Buy milk" }`
+Request body: `{ "title": "Buy milk", "due": "2026-11-01" }` (`due` is
+optional; omit it to leave the task with no due date)
 
-Response: `201 Created` with the new task, including its generated `id`.
+Response: `201 Created` with the new task, including its generated `id`, or
+`400 Bad Request` if `due` is present and isn't a valid `YYYY-MM-DD` date.
 
 ### `GET /tasks`
 
@@ -56,12 +61,15 @@ Response: `200 OK` with an array of tasks.
 
 ### `PATCH /tasks/:id`
 
-Mark a task complete or incomplete.
+Update a task's `completed` status, `due` date, or both.
 
-Request body: `{ "completed": true }` (or `false` to reopen it)
+Request body: `{ "completed": true }` and/or `{ "due": "2026-11-01" }` (send
+`due: null` to clear a due date; at least one of `completed` or `due` must be
+present)
 
-Response: `200 OK` with the updated task, or `404 Not Found` if `:id` doesn't
-exist.
+Response: `200 OK` with the updated task, `400 Bad Request` if `due` is
+present, non-null, and not a valid `YYYY-MM-DD` date, or `404 Not Found` if
+`:id` doesn't exist.
 
 ### `DELETE /tasks/:id`
 
