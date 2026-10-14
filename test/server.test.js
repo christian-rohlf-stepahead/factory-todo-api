@@ -70,7 +70,7 @@ test('POST /tasks creates a task with a title and unique id', async (t) => {
   assert.ok(body.id);
 });
 
-test('GET /tasks lists all tasks with id, title and status', async (t) => {
+test('GET /tasks lists all tasks with id, title, status and due date', async (t) => {
   const ctx = await startTestServer();
   t.after(() => stop(ctx));
 
@@ -80,7 +80,50 @@ test('GET /tasks lists all tasks with id, title and status', async (t) => {
 
   assert.equal(res.status, 200);
   assert.equal(body.length, 1);
-  assert.deepEqual(Object.keys(body[0]).sort(), ['completed', 'id', 'title']);
+  assert.deepEqual(Object.keys(body[0]).sort(), ['completed', 'due', 'id', 'title']);
+  assert.equal(body[0].due, null);
+});
+
+test('POST /tasks accepts an optional due date and returns it', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const res = await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Renew passport', due: '2026-11-01' },
+  });
+  const body = res.json();
+
+  assert.equal(res.status, 201);
+  assert.equal(body.due, '2026-11-01');
+});
+
+test('POST /tasks without a due date returns it as null', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const res = await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Buy milk' } });
+  const body = res.json();
+
+  assert.equal(res.status, 201);
+  assert.equal(body.due, null);
+});
+
+test('POST /tasks rejects an invalid due date and creates no task', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const res = await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Buy milk', due: 'not-a-date' },
+  });
+  assert.equal(res.status, 400);
+  assert.ok(res.json().error);
+
+  const list = (await request(ctx.socketPath, { path: '/tasks' })).json();
+  assert.deepEqual(list, []);
 });
 
 test('PATCH /tasks/:id marks a task complete and reopens it', async (t) => {
@@ -105,6 +148,65 @@ test('PATCH /tasks/:id marks a task complete and reopens it', async (t) => {
     body: { completed: false },
   });
   assert.equal(reopenRes.json().completed, false);
+});
+
+test('PATCH /tasks/:id sets and clears a due date independently of completed', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const created = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Buy milk' } })
+  ).json();
+
+  const withDue = await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${created.id}`,
+    body: { due: '2026-11-01' },
+  });
+  assert.equal(withDue.status, 200);
+  assert.equal(withDue.json().due, '2026-11-01');
+  assert.equal(withDue.json().completed, false);
+
+  const completedToo = await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${created.id}`,
+    body: { completed: true },
+  });
+  assert.equal(completedToo.json().completed, true);
+  assert.equal(completedToo.json().due, '2026-11-01');
+
+  const cleared = await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${created.id}`,
+    body: { due: null },
+  });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.json().due, null);
+  assert.equal(cleared.json().completed, true);
+});
+
+test('PATCH /tasks/:id rejects an invalid, non-null due date and makes no change', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const created = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Buy milk', due: '2026-11-01' },
+    })
+  ).json();
+
+  const res = await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${created.id}`,
+    body: { due: 'not-a-date' },
+  });
+  assert.equal(res.status, 400);
+  assert.ok(res.json().error);
+
+  const list = (await request(ctx.socketPath, { path: '/tasks' })).json();
+  assert.equal(list[0].due, '2026-11-01');
 });
 
 test('DELETE /tasks/:id removes the task', async (t) => {
@@ -167,7 +269,7 @@ test('tasks survive a server restart against the same JSON file', async (t) => {
   await new Promise((resolve) => second.listen(socketPath2, resolve));
   try {
     const list = (await request(socketPath2, { path: '/tasks' })).json();
-    assert.deepEqual(list, [{ id: created.id, title: 'Buy milk', completed: false }]);
+    assert.deepEqual(list, [{ id: created.id, title: 'Buy milk', completed: false, due: null }]);
   } finally {
     second.closeAllConnections();
     await new Promise((resolve) => second.close(resolve));
