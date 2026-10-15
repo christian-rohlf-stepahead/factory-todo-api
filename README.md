@@ -37,21 +37,26 @@ npm test
 All request and response bodies are JSON. A task has the shape:
 
 ```json
-{ "id": "...", "title": "...", "completed": false, "due": null }
+{ "id": "...", "title": "...", "completed": false, "due": null, "priority": "normal" }
 ```
 
 `due` is an optional due date as an ISO `YYYY-MM-DD` string, or `null` if none
 is set.
 
+`priority` is one of `"low"`, `"normal"`, or `"high"`, defaulting to
+`"normal"`.
+
 ### `POST /tasks`
 
 Create a task.
 
-Request body: `{ "title": "Buy milk", "due": "2026-11-01" }` (`due` is
-optional; omit it to leave the task with no due date)
+Request body: `{ "title": "Buy milk", "due": "2026-11-01", "priority": "high" }`
+(`due` and `priority` are both optional; omit `due` to leave the task with no
+due date, and omit `priority` to default it to `"normal"`)
 
 Response: `201 Created` with the new task, including its generated `id`, or
-`400 Bad Request` if `due` is present and isn't a valid `YYYY-MM-DD` date.
+`400 Bad Request` if `due` is present and isn't a valid `YYYY-MM-DD` date, or
+if `priority` is present and isn't `"low"`, `"normal"`, or `"high"`.
 
 ### `GET /tasks`
 
@@ -68,14 +73,16 @@ Response: `200 OK` with an array of tasks.
 
 ### `PATCH /tasks/:id`
 
-Update a task's `completed` status, `due` date, or both.
+Update a task's `completed` status, `due` date, `priority`, or any
+combination of the three.
 
-Request body: `{ "completed": true }` and/or `{ "due": "2026-11-01" }` (send
-`due: null` to clear a due date; at least one of `completed` or `due` must be
-present)
+Request body: `{ "completed": true }` and/or `{ "due": "2026-11-01" }`
+and/or `{ "priority": "high" }` (send `due: null` to clear a due date; at
+least one of `completed`, `due`, or `priority` must be present)
 
 Response: `200 OK` with the updated task, `400 Bad Request` if `due` is
-present, non-null, and not a valid `YYYY-MM-DD` date, or `404 Not Found` if
+present, non-null, and not a valid `YYYY-MM-DD` date, if `priority` is
+present and isn't `"low"`, `"normal"`, or `"high"`, or `404 Not Found` if
 `:id` doesn't exist.
 
 ### `DELETE /tasks/:id`

@@ -21,6 +21,12 @@ export function isValidDueDate(value) {
   );
 }
 
+export const PRIORITIES = ['low', 'normal', 'high'];
+
+export function isValidPriority(value) {
+  return PRIORITIES.includes(value);
+}
+
 export class TaskStore {
   constructor(dbPath) {
     this.dbPath = dbPath;
@@ -30,7 +36,7 @@ export class TaskStore {
   async load() {
     try {
       const raw = await readFile(this.dbPath, 'utf8');
-      this.tasks = JSON.parse(raw).map((task) => ({ due: null, ...task }));
+      this.tasks = JSON.parse(raw).map((task) => ({ due: null, priority: 'normal', ...task }));
     } catch (err) {
       if (err.code !== 'ENOENT') throw err;
       this.tasks = [];
@@ -50,8 +56,8 @@ export class TaskStore {
     return tasks.map((task) => ({ ...task }));
   }
 
-  async create(title, due = null) {
-    const task = { id: randomUUID(), title, completed: false, due };
+  async create(title, due = null, priority = 'normal') {
+    const task = { id: randomUUID(), title, completed: false, due, priority };
     this.tasks.push(task);
     await this.#save();
     return { ...task };
@@ -67,10 +73,11 @@ export class TaskStore {
     return this.update(id, { completed });
   }
 
-  async update(id, { completed, due } = {}) {
+  async update(id, { completed, due, priority } = {}) {
     const task = this.#find(id);
     if (completed !== undefined) task.completed = completed;
     if (due !== undefined) task.due = due;
+    if (priority !== undefined) task.priority = priority;
     await this.#save();
     return { ...task };
   }
