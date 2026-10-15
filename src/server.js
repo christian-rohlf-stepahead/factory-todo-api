@@ -33,7 +33,8 @@ export async function createServer({ dbPath }) {
 
       if (segments.length === 1 && req.method === 'GET') {
         const overdue = url.searchParams.get('overdue') === 'true';
-        sendJson(res, 200, store.list({ overdue }));
+        const tag = url.searchParams.get('tag') ?? undefined;
+        sendJson(res, 200, store.list({ overdue, tag }));
         return;
       }
 
