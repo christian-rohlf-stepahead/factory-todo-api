@@ -33,6 +33,24 @@ test('creates a task with a due date', async () => {
   assert.equal(task.due, '2026-11-01');
 });
 
+test('creates a task with a default priority of normal', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const task = await store.create('Buy milk');
+
+  assert.equal(task.priority, 'normal');
+});
+
+test('creates a task with an explicit priority', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const task = await store.create('Buy milk', null, 'high');
+
+  assert.equal(task.priority, 'high');
+});
+
 test('lists all tasks with id, title, completion status and due date', async () => {
   const store = new TaskStore(await tempDbPath());
   await store.load();
@@ -42,7 +60,7 @@ test('lists all tasks with id, title, completion status and due date', async () 
   const tasks = store.list();
 
   assert.equal(tasks.length, 2);
-  assert.deepEqual(Object.keys(tasks[0]).sort(), ['completed', 'due', 'id', 'title']);
+  assert.deepEqual(Object.keys(tasks[0]).sort(), ['completed', 'due', 'id', 'priority', 'title']);
 });
 
 test('marks a task complete and reopens it by id', async () => {
@@ -83,6 +101,17 @@ test('sets and clears a due date independently of completed', async () => {
   const cleared = await store.update(task.id, { due: null });
   assert.equal(cleared.due, null);
   assert.equal(cleared.completed, true);
+});
+
+test('sets a priority independently of completed and due', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+  const task = await store.create('Buy milk');
+
+  const updated = await store.update(task.id, { priority: 'low' });
+  assert.equal(updated.priority, 'low');
+  assert.equal(updated.completed, false);
+  assert.equal(updated.due, null);
 });
 
 test('lists only overdue tasks when asked: not completed and due strictly before today', async () => {
@@ -131,7 +160,7 @@ test('persists tasks to the JSON file so they survive a restart', async () => {
   const second = new TaskStore(dbPath);
   await second.load();
   assert.deepEqual(second.list(), [
-    { id: task.id, title: 'Buy milk', completed: true, due: null },
+    { id: task.id, title: 'Buy milk', completed: true, due: null, priority: 'normal' },
   ]);
 });
 
@@ -143,6 +172,21 @@ test('loads pre-existing tasks written before due dates existed, defaulting due 
   await store.load();
 
   assert.deepEqual(store.list(), [
-    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null },
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal' },
+  ]);
+});
+
+test('loads pre-existing tasks written before priorities existed, defaulting priority to normal', async () => {
+  const dbPath = await tempDbPath();
+  await writeFile(
+    dbPath,
+    JSON.stringify([{ id: 'legacy-1', title: 'Buy milk', completed: false, due: null }]),
+  );
+
+  const store = new TaskStore(dbPath);
+  await store.load();
+
+  assert.deepEqual(store.list(), [
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal' },
   ]);
 });

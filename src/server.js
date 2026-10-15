@@ -1,5 +1,5 @@
 import { createServer as createHttpServer } from 'node:http';
-import { TaskStore, TaskNotFoundError, isValidDueDate } from './store.js';
+import { TaskStore, TaskNotFoundError, isValidDueDate, isValidPriority } from './store.js';
 
 function sendJson(res, status, body) {
   const data = JSON.stringify(body);
@@ -52,7 +52,15 @@ export async function createServer({ dbPath }) {
           }
           due = body.due;
         }
-        const task = await store.create(title, due);
+        let priority = 'normal';
+        if ('priority' in body) {
+          if (!isValidPriority(body.priority)) {
+            sendJson(res, 400, { error: '"priority" must be one of "low", "normal", or "high".' });
+            return;
+          }
+          priority = body.priority;
+        }
+        const task = await store.create(title, due, priority);
         sendJson(res, 201, task);
         return;
       }
@@ -62,9 +70,12 @@ export async function createServer({ dbPath }) {
         const body = await readJsonBody(req);
         const hasCompleted = 'completed' in body;
         const hasDue = 'due' in body;
+        const hasPriority = 'priority' in body;
 
-        if (!hasCompleted && !hasDue) {
-          sendJson(res, 400, { error: 'At least one of "completed" or "due" must be provided.' });
+        if (!hasCompleted && !hasDue && !hasPriority) {
+          sendJson(res, 400, {
+            error: 'At least one of "completed", "due", or "priority" must be provided.',
+          });
           return;
         }
         if (hasCompleted && typeof body.completed !== 'boolean') {
@@ -75,9 +86,14 @@ export async function createServer({ dbPath }) {
           sendJson(res, 400, { error: '"due" must be a valid "YYYY-MM-DD" date, or null.' });
           return;
         }
+        if (hasPriority && !isValidPriority(body.priority)) {
+          sendJson(res, 400, { error: '"priority" must be one of "low", "normal", or "high".' });
+          return;
+        }
         const patch = {};
         if (hasCompleted) patch.completed = body.completed;
         if (hasDue) patch.due = body.due;
+        if (hasPriority) patch.priority = body.priority;
         const task = await store.update(id, patch);
         sendJson(res, 200, task);
         return;
