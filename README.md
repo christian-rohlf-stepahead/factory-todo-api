@@ -57,6 +57,13 @@ Response: `201 Created` with the new task, including its generated `id`, or
 
 List all tasks.
 
+Query parameters:
+
+- `overdue` — when `true`, only return tasks that are not completed and have
+  a due date strictly before today (UTC). Tasks with no due date, a due date
+  of today or later, or that are completed, are excluded. Any other value, or
+  omitting the parameter, returns all tasks.
+
 Response: `200 OK` with an array of tasks.
 
 ### `PATCH /tasks/:id`
