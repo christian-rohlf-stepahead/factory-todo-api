@@ -37,7 +37,7 @@ npm test
 All request and response bodies are JSON. A task has the shape:
 
 ```json
-{ "id": "...", "title": "...", "completed": false, "due": null, "priority": "normal" }
+{ "id": "...", "title": "...", "completed": false, "due": null, "priority": "normal", "tags": [] }
 ```
 
 `due` is an optional due date as an ISO `YYYY-MM-DD` string, or `null` if none
@@ -46,17 +46,23 @@ is set.
 `priority` is one of `"low"`, `"normal"`, or `"high"`, defaulting to
 `"normal"`.
 
+`tags` is an array of lowercase-letter strings (`a`-`z` only, e.g. `"home"`),
+defaulting to `[]`. Duplicate tags given for the same task are silently
+reduced to their distinct set.
+
 ### `POST /tasks`
 
 Create a task.
 
-Request body: `{ "title": "Buy milk", "due": "2026-11-01", "priority": "high" }`
-(`due` and `priority` are both optional; omit `due` to leave the task with no
-due date, and omit `priority` to default it to `"normal"`)
+Request body: `{ "title": "Buy milk", "due": "2026-11-01", "priority": "high", "tags": ["home"] }`
+(`due`, `priority`, and `tags` are all optional; omit `due` to leave the task
+with no due date, omit `priority` to default it to `"normal"`, and omit
+`tags` to default it to `[]`)
 
 Response: `201 Created` with the new task, including its generated `id`, or
-`400 Bad Request` if `due` is present and isn't a valid `YYYY-MM-DD` date, or
-if `priority` is present and isn't `"low"`, `"normal"`, or `"high"`.
+`400 Bad Request` if `due` is present and isn't a valid `YYYY-MM-DD` date, if
+`priority` is present and isn't `"low"`, `"normal"`, or `"high"`, or if `tags`
+is present and isn't an array of lowercase-letter strings.
 
 ### `GET /tasks`
 
@@ -73,17 +79,20 @@ Response: `200 OK` with an array of tasks.
 
 ### `PATCH /tasks/:id`
 
-Update a task's `completed` status, `due` date, `priority`, or any
-combination of the three.
+Update a task's `completed` status, `due` date, `priority`, `tags`, or any
+combination of the four.
 
 Request body: `{ "completed": true }` and/or `{ "due": "2026-11-01" }`
-and/or `{ "priority": "high" }` (send `due: null` to clear a due date; at
-least one of `completed`, `due`, or `priority` must be present)
+and/or `{ "priority": "high" }` and/or `{ "tags": ["home"] }` (send
+`due: null` to clear a due date; sending `tags` replaces the task's whole tag
+list, it does not merge with the existing one; at least one of `completed`,
+`due`, `priority`, or `tags` must be present)
 
 Response: `200 OK` with the updated task, `400 Bad Request` if `due` is
 present, non-null, and not a valid `YYYY-MM-DD` date, if `priority` is
-present and isn't `"low"`, `"normal"`, or `"high"`, or `404 Not Found` if
-`:id` doesn't exist.
+present and isn't `"low"`, `"normal"`, or `"high"`, if `tags` is present and
+isn't an array of lowercase-letter strings, or `404 Not Found` if `:id`
+doesn't exist.
 
 ### `DELETE /tasks/:id`
 

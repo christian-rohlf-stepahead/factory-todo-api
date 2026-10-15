@@ -80,9 +80,10 @@ test('GET /tasks lists all tasks with id, title, status and due date', async (t)
 
   assert.equal(res.status, 200);
   assert.equal(body.length, 1);
-  assert.deepEqual(Object.keys(body[0]).sort(), ['completed', 'due', 'id', 'priority', 'title']);
+  assert.deepEqual(Object.keys(body[0]).sort(), ['completed', 'due', 'id', 'priority', 'tags', 'title']);
   assert.equal(body[0].due, null);
   assert.equal(body[0].priority, 'normal');
+  assert.deepEqual(body[0].tags, []);
 });
 
 test('GET /tasks ignores unrecognized query parameters', async (t) => {
@@ -232,6 +233,65 @@ test('POST /tasks rejects an invalid priority and creates no task', async (t) =>
   assert.deepEqual(list, []);
 });
 
+test('POST /tasks accepts an optional tags array and returns it', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const res = await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Buy milk', tags: ['home', 'urgent'] },
+  });
+  const body = res.json();
+
+  assert.equal(res.status, 201);
+  assert.deepEqual(body.tags, ['home', 'urgent']);
+});
+
+test('POST /tasks without tags defaults it to an empty array', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const res = await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Buy milk' } });
+  const body = res.json();
+
+  assert.equal(res.status, 201);
+  assert.deepEqual(body.tags, []);
+});
+
+test('POST /tasks dedupes repeated tags', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const res = await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Buy milk', tags: ['home', 'home'] },
+  });
+  const body = res.json();
+
+  assert.equal(res.status, 201);
+  assert.deepEqual(body.tags, ['home']);
+});
+
+test('POST /tasks rejects an invalid tags value and creates no task', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  for (const tags of ['home', ['Home'], ['home-town'], ['home2'], ['']]) {
+    const res = await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Buy milk', tags },
+    });
+    assert.equal(res.status, 400, `expected 400 for tags: ${JSON.stringify(tags)}`);
+    assert.ok(res.json().error);
+  }
+
+  const list = (await request(ctx.socketPath, { path: '/tasks' })).json();
+  assert.deepEqual(list, []);
+});
+
 test('PATCH /tasks/:id marks a task complete and reopens it', async (t) => {
   const ctx = await startTestServer();
   t.after(() => stop(ctx));
@@ -317,6 +377,59 @@ test('PATCH /tasks/:id updates priority alone, or together with completed and du
   assert.equal(withOthers.json().priority, 'low');
   assert.equal(withOthers.json().completed, true);
   assert.equal(withOthers.json().due, '2026-11-01');
+});
+
+test('PATCH /tasks/:id accepts tags and replaces the task\'s tag list', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const created = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Buy milk', tags: ['home'] },
+    })
+  ).json();
+
+  const res = await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${created.id}`,
+    body: { tags: ['work', 'urgent'] },
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json().tags, ['work', 'urgent']);
+
+  const cleared = await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${created.id}`,
+    body: { tags: [] },
+  });
+  assert.equal(cleared.status, 200);
+  assert.deepEqual(cleared.json().tags, []);
+});
+
+test('PATCH /tasks/:id rejects an invalid tags value and makes no change', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const created = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Buy milk', tags: ['home'] },
+    })
+  ).json();
+
+  const res = await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${created.id}`,
+    body: { tags: ['Not Valid'] },
+  });
+  assert.equal(res.status, 400);
+  assert.ok(res.json().error);
+
+  const list = (await request(ctx.socketPath, { path: '/tasks' })).json();
+  assert.deepEqual(list[0].tags, ['home']);
 });
 
 test('PATCH /tasks/:id rejects an invalid priority and makes no change', async (t) => {
@@ -428,7 +541,7 @@ test('tasks survive a server restart against the same JSON file', async (t) => {
   try {
     const list = (await request(socketPath2, { path: '/tasks' })).json();
     assert.deepEqual(list, [
-      { id: created.id, title: 'Buy milk', completed: false, due: null, priority: 'normal' },
+      { id: created.id, title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
     ]);
   } finally {
     second.closeAllConnections();

@@ -1,5 +1,5 @@
 import { createServer as createHttpServer } from 'node:http';
-import { TaskStore, TaskNotFoundError, isValidDueDate, isValidPriority } from './store.js';
+import { TaskStore, TaskNotFoundError, isValidDueDate, isValidPriority, isValidTags } from './store.js';
 
 function sendJson(res, status, body) {
   const data = JSON.stringify(body);
@@ -60,7 +60,15 @@ export async function createServer({ dbPath }) {
           }
           priority = body.priority;
         }
-        const task = await store.create(title, due, priority);
+        let tags = [];
+        if ('tags' in body) {
+          if (!isValidTags(body.tags)) {
+            sendJson(res, 400, { error: '"tags" must be an array of lowercase-letter strings.' });
+            return;
+          }
+          tags = body.tags;
+        }
+        const task = await store.create(title, due, priority, tags);
         sendJson(res, 201, task);
         return;
       }
@@ -71,10 +79,11 @@ export async function createServer({ dbPath }) {
         const hasCompleted = 'completed' in body;
         const hasDue = 'due' in body;
         const hasPriority = 'priority' in body;
+        const hasTags = 'tags' in body;
 
-        if (!hasCompleted && !hasDue && !hasPriority) {
+        if (!hasCompleted && !hasDue && !hasPriority && !hasTags) {
           sendJson(res, 400, {
-            error: 'At least one of "completed", "due", or "priority" must be provided.',
+            error: 'At least one of "completed", "due", "priority", or "tags" must be provided.',
           });
           return;
         }
@@ -90,10 +99,15 @@ export async function createServer({ dbPath }) {
           sendJson(res, 400, { error: '"priority" must be one of "low", "normal", or "high".' });
           return;
         }
+        if (hasTags && !isValidTags(body.tags)) {
+          sendJson(res, 400, { error: '"tags" must be an array of lowercase-letter strings.' });
+          return;
+        }
         const patch = {};
         if (hasCompleted) patch.completed = body.completed;
         if (hasDue) patch.due = body.due;
         if (hasPriority) patch.priority = body.priority;
+        if (hasTags) patch.tags = body.tags;
         const task = await store.update(id, patch);
         sendJson(res, 200, task);
         return;

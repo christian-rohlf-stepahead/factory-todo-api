@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { TaskStore } from '../src/store.js';
+import { TaskStore, isValidTags } from '../src/store.js';
 
 async function tempDbPath() {
   const dir = await mkdtemp(path.join(tmpdir(), 'todo-api-test-'));
@@ -60,7 +60,54 @@ test('lists all tasks with id, title, completion status and due date', async () 
   const tasks = store.list();
 
   assert.equal(tasks.length, 2);
-  assert.deepEqual(Object.keys(tasks[0]).sort(), ['completed', 'due', 'id', 'priority', 'title']);
+  assert.deepEqual(Object.keys(tasks[0]).sort(), ['completed', 'due', 'id', 'priority', 'tags', 'title']);
+});
+
+test('creates a task with a default tags of an empty array', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const task = await store.create('Buy milk');
+
+  assert.deepEqual(task.tags, []);
+});
+
+test('creates a task with explicit tags', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const task = await store.create('Buy milk', null, 'normal', ['home', 'urgent']);
+
+  assert.deepEqual(task.tags, ['home', 'urgent']);
+});
+
+test('dedupes repeated tags on create', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const task = await store.create('Buy milk', null, 'normal', ['home', 'home', 'urgent']);
+
+  assert.deepEqual(task.tags, ['home', 'urgent']);
+});
+
+test('replaces a task\'s tags on update', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+  const task = await store.create('Buy milk', null, 'normal', ['home']);
+
+  const updated = await store.update(task.id, { tags: ['work', 'urgent'] });
+
+  assert.deepEqual(updated.tags, ['work', 'urgent']);
+});
+
+test('dedupes repeated tags on update', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+  const task = await store.create('Buy milk');
+
+  const updated = await store.update(task.id, { tags: ['work', 'work'] });
+
+  assert.deepEqual(updated.tags, ['work']);
 });
 
 test('marks a task complete and reopens it by id', async () => {
@@ -160,7 +207,7 @@ test('persists tasks to the JSON file so they survive a restart', async () => {
   const second = new TaskStore(dbPath);
   await second.load();
   assert.deepEqual(second.list(), [
-    { id: task.id, title: 'Buy milk', completed: true, due: null, priority: 'normal' },
+    { id: task.id, title: 'Buy milk', completed: true, due: null, priority: 'normal', tags: [] },
   ]);
 });
 
@@ -172,7 +219,7 @@ test('loads pre-existing tasks written before due dates existed, defaulting due 
   await store.load();
 
   assert.deepEqual(store.list(), [
-    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal' },
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
   ]);
 });
 
@@ -187,6 +234,36 @@ test('loads pre-existing tasks written before priorities existed, defaulting pri
   await store.load();
 
   assert.deepEqual(store.list(), [
-    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal' },
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
   ]);
+});
+
+test('loads pre-existing tasks written before tags existed, defaulting tags to an empty array', async () => {
+  const dbPath = await tempDbPath();
+  await writeFile(
+    dbPath,
+    JSON.stringify([
+      { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal' },
+    ]),
+  );
+
+  const store = new TaskStore(dbPath);
+  await store.load();
+
+  assert.deepEqual(store.list(), [
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
+  ]);
+});
+
+test('isValidTags accepts only arrays of lowercase-letter strings', () => {
+  assert.equal(isValidTags([]), true);
+  assert.equal(isValidTags(['home', 'urgent']), true);
+  assert.equal(isValidTags('home'), false);
+  assert.equal(isValidTags(['Home']), false);
+  assert.equal(isValidTags(['home-town']), false);
+  assert.equal(isValidTags(['home2']), false);
+  assert.equal(isValidTags([' home']), false);
+  assert.equal(isValidTags(['']), false);
+  assert.equal(isValidTags([1]), false);
+  assert.equal(isValidTags(null), false);
 });
