@@ -74,6 +74,10 @@ Query parameters:
   a due date strictly before today (UTC). Tasks with no due date, a due date
   of today or later, or that are completed, are excluded. Any other value, or
   omitting the parameter, returns all tasks.
+- `tag` — only return tasks whose `tags` include this value. Omitting the
+  parameter returns tasks regardless of tag.
+
+Given together, `overdue` and `tag` both narrow the list (AND).
 
 Response: `200 OK` with an array of tasks.
 

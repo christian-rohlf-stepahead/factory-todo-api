@@ -149,6 +149,66 @@ test('GET /tasks?overdue=true returns only incomplete tasks with a due date stri
   );
 });
 
+test('GET /tasks?tag=<tag> returns only tasks with that tag', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const home = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Mow lawn', tags: ['home'] },
+    })
+  ).json();
+  await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Write report', tags: ['work'] },
+  });
+  await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'No tags' } });
+
+  const res = await request(ctx.socketPath, { path: '/tasks?tag=home' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [home.id],
+  );
+});
+
+test('GET /tasks?tag=<tag>&overdue=true narrows both filters together (AND)', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const overdueHome = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Overdue home', due: '2020-01-01', tags: ['home'] },
+    })
+  ).json();
+  await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Overdue work', due: '2020-01-01', tags: ['work'] },
+  });
+  await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Future home', due: '2099-01-01', tags: ['home'] },
+  });
+
+  const res = await request(ctx.socketPath, { path: '/tasks?tag=home&overdue=true' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [overdueHome.id],
+  );
+});
+
 test('POST /tasks accepts an optional due date and returns it', async (t) => {
   const ctx = await startTestServer();
   t.after(() => stop(ctx));

@@ -180,6 +180,38 @@ test('lists only overdue tasks when asked: not completed and due strictly before
   );
 });
 
+test('lists only tasks with the given tag', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const home = await store.create('Mow lawn', null, 'normal', ['home']);
+  await store.create('Write report', null, 'normal', ['work']);
+  await store.create('No tags');
+
+  const tasks = store.list({ tag: 'home' });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [home.id],
+  );
+});
+
+test('combines tag and overdue filters with AND', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const overdueHome = await store.create('Overdue home', '2020-01-01', 'normal', ['home']);
+  await store.create('Overdue work', '2020-01-01', 'normal', ['work']);
+  await store.create('Future home', '2099-01-01', 'normal', ['home']);
+
+  const tasks = store.list({ tag: 'home', overdue: true });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [overdueHome.id],
+  );
+});
+
 test('throws a TaskNotFoundError for an unknown id', async () => {
   const store = new TaskStore(await tempDbPath());
   await store.load();
