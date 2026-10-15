@@ -42,8 +42,12 @@ export class TaskStore {
     await writeFile(this.dbPath, JSON.stringify(this.tasks, null, 2));
   }
 
-  list() {
-    return this.tasks.map((task) => ({ ...task }));
+  list({ overdue } = {}) {
+    const today = new Date().toISOString().slice(0, 10);
+    const tasks = overdue
+      ? this.tasks.filter((task) => !task.completed && task.due !== null && task.due < today)
+      : this.tasks;
+    return tasks.map((task) => ({ ...task }));
   }
 
   async create(title, due = null) {

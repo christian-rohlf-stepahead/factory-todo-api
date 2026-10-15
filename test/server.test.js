@@ -84,6 +84,69 @@ test('GET /tasks lists all tasks with id, title, status and due date', async (t)
   assert.equal(body[0].due, null);
 });
 
+test('GET /tasks ignores unrecognized query parameters', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Buy milk' } });
+  await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Renew passport', due: '2020-01-01' },
+  });
+
+  const res = await request(ctx.socketPath, { path: '/tasks?anything=else&foo=bar' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(body.length, 2);
+});
+
+test('GET /tasks?overdue=true returns only incomplete tasks with a due date strictly before today', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const overdue = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Overdue', due: '2020-01-01' },
+    })
+  ).json();
+  await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Due today', due: new Date().toISOString().slice(0, 10) },
+  });
+  await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Due in the future', due: '2099-01-01' },
+  });
+  await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'No due date' } });
+  const completedOverdue = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Completed overdue', due: '2020-01-01' },
+    })
+  ).json();
+  await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${completedOverdue.id}`,
+    body: { completed: true },
+  });
+
+  const res = await request(ctx.socketPath, { path: '/tasks?overdue=true' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [overdue.id],
+  );
+});
+
 test('POST /tasks accepts an optional due date and returns it', async (t) => {
   const ctx = await startTestServer();
   t.after(() => stop(ctx));

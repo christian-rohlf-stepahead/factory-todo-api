@@ -85,6 +85,25 @@ test('sets and clears a due date independently of completed', async () => {
   assert.equal(cleared.completed, true);
 });
 
+test('lists only overdue tasks when asked: not completed and due strictly before today', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const overdue = await store.create('Overdue', '2020-01-01');
+  await store.create('Due today', new Date().toISOString().slice(0, 10));
+  await store.create('Due in the future', '2099-01-01');
+  await store.create('No due date');
+  const completedOverdue = await store.create('Completed overdue', '2020-01-01');
+  await store.setCompleted(completedOverdue.id, true);
+
+  const tasks = store.list({ overdue: true });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [overdue.id],
+  );
+});
+
 test('throws a TaskNotFoundError for an unknown id', async () => {
   const store = new TaskStore(await tempDbPath());
   await store.load();
