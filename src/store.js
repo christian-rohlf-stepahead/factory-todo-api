@@ -27,6 +27,14 @@ export function isValidPriority(value) {
   return PRIORITIES.includes(value);
 }
 
+export const SORT_VALUES = ['priority'];
+
+export function isValidSort(value) {
+  return SORT_VALUES.includes(value);
+}
+
+const PRIORITY_RANK = { high: 0, normal: 1, low: 2 };
+
 const TAG_RE = /^[a-z]+$/;
 
 export function isValidTag(value) {
@@ -62,7 +70,7 @@ export class TaskStore {
     await writeFile(this.dbPath, JSON.stringify(this.tasks, null, 2));
   }
 
-  list({ overdue, tag } = {}) {
+  list({ overdue, tag, sort } = {}) {
     const today = new Date().toISOString().slice(0, 10);
     let tasks = this.tasks;
     if (overdue) {
@@ -71,7 +79,18 @@ export class TaskStore {
     if (tag !== undefined) {
       tasks = tasks.filter((task) => task.tags.includes(tag));
     }
-    return tasks.map((task) => ({ ...task }));
+    tasks = tasks.map((task) => ({ ...task }));
+    if (sort === 'priority') {
+      tasks.sort((a, b) => {
+        const priorityDiff = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+        if (priorityDiff !== 0) return priorityDiff;
+        if (a.due === null && b.due === null) return 0;
+        if (a.due === null) return 1;
+        if (b.due === null) return -1;
+        return a.due < b.due ? -1 : a.due > b.due ? 1 : 0;
+      });
+    }
+    return tasks;
   }
 
   async create(title, due = null, priority = 'normal', tags = []) {
