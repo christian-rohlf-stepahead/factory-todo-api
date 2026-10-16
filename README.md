@@ -76,10 +76,16 @@ Query parameters:
   omitting the parameter, returns all tasks.
 - `tag` — only return tasks whose `tags` include this value. Omitting the
   parameter returns tasks regardless of tag.
+- `sort` — when `priority`, order results by priority: `high` tasks first,
+  then `normal`, then `low`. Within a priority tier, tasks are ordered by
+  `due` date ascending (soonest first); undated tasks come after all dated
+  tasks in that tier. Omitting the parameter keeps insertion order. Any other
+  value returns `400 Bad Request` naming the accepted value (`priority`).
 
-Given together, `overdue` and `tag` both narrow the list (AND).
+`overdue` and `tag` narrow the list (AND) before `sort` orders what remains.
 
-Response: `200 OK` with an array of tasks.
+Response: `200 OK` with an array of tasks, `400 Bad Request` if `sort` is
+present and isn't `"priority"`.
 
 ### `PATCH /tasks/:id`
 

@@ -212,6 +212,118 @@ test('combines tag and overdue filters with AND', async () => {
   );
 });
 
+test('AC1: store.list({ sort: "priority" }) orders high before normal before low', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const low = await store.create('Low priority task', null, 'low');
+  const high = await store.create('High priority task', null, 'high');
+  const normal = await store.create('Normal priority task', null, 'normal');
+
+  const tasks = store.list({ sort: 'priority' });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [high.id, normal.id, low.id],
+  );
+});
+
+test('AC2: store.list({ sort: "priority" }) orders tasks within a tier by due date ascending', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const late = await store.create('Late', '2026-03-01', 'high');
+  const early = await store.create('Early', '2026-01-01', 'high');
+  const mid = await store.create('Mid', '2026-02-01', 'high');
+
+  const tasks = store.list({ sort: 'priority' });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [early.id, mid.id, late.id],
+  );
+});
+
+test('AC3: store.list({ sort: "priority" }) sorts undated tasks after dated tasks within a tier', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const undated = await store.create('No due date', null, 'high');
+  const dated = await store.create('Has a due date', '2026-01-01', 'high');
+
+  const tasks = store.list({ sort: 'priority' });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [dated.id, undated.id],
+  );
+});
+
+test('AC5: store.list({ sort: "priority", overdue: true }) filters by overdue first, then sorts by priority', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const overdueLow = await store.create('Overdue low', '2020-01-02', 'low');
+  const overdueHigh = await store.create('Overdue high', '2020-01-01', 'high');
+  await store.create('Future high', '2099-01-01', 'high');
+
+  const tasks = store.list({ sort: 'priority', overdue: true });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [overdueHigh.id, overdueLow.id],
+  );
+});
+
+test('AC5: store.list({ sort: "priority", tag }) filters by tag first, then sorts by priority', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const homeLow = await store.create('Home low', null, 'low', ['home']);
+  const homeHigh = await store.create('Home high', null, 'high', ['home']);
+  await store.create('Work high', null, 'high', ['work']);
+
+  const tasks = store.list({ sort: 'priority', tag: 'home' });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [homeHigh.id, homeLow.id],
+  );
+});
+
+test('AC5: store.list({ sort: "priority", overdue: true, tag }) applies both filters, then sorts by priority', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const overdueHomeLow = await store.create('Overdue home low', '2020-01-02', 'low', ['home']);
+  const overdueHomeHigh = await store.create('Overdue home high', '2020-01-01', 'high', ['home']);
+  await store.create('Overdue work high', '2020-01-01', 'high', ['work']);
+  await store.create('Future home high', '2099-01-01', 'high', ['home']);
+
+  const tasks = store.list({ sort: 'priority', overdue: true, tag: 'home' });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [overdueHomeHigh.id, overdueHomeLow.id],
+  );
+});
+
+test('AC6: store.list() without a sort option keeps insertion order', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const a = await store.create('First', null, 'low');
+  const b = await store.create('Second', null, 'high');
+  const c = await store.create('Third', null, 'normal');
+
+  const tasks = store.list();
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [a.id, b.id, c.id],
+  );
+});
+
 test('throws a TaskNotFoundError for an unknown id', async () => {
   const store = new TaskStore(await tempDbPath());
   await store.load();

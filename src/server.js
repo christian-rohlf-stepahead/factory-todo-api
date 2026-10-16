@@ -1,5 +1,12 @@
 import { createServer as createHttpServer } from 'node:http';
-import { TaskStore, TaskNotFoundError, isValidDueDate, isValidPriority, isValidTags } from './store.js';
+import {
+  TaskStore,
+  TaskNotFoundError,
+  isValidDueDate,
+  isValidPriority,
+  isValidTags,
+  isValidSort,
+} from './store.js';
 
 function sendJson(res, status, body) {
   const data = JSON.stringify(body);
@@ -34,7 +41,12 @@ export async function createServer({ dbPath }) {
       if (segments.length === 1 && req.method === 'GET') {
         const overdue = url.searchParams.get('overdue') === 'true';
         const tag = url.searchParams.get('tag') ?? undefined;
-        sendJson(res, 200, store.list({ overdue, tag }));
+        const sort = url.searchParams.get('sort') ?? undefined;
+        if (sort !== undefined && !isValidSort(sort)) {
+          sendJson(res, 400, { error: '"sort" must be one of "priority".' });
+          return;
+        }
+        sendJson(res, 200, store.list({ overdue, tag, sort }));
         return;
       }
 

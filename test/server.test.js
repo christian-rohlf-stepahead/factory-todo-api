@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
@@ -207,6 +207,260 @@ test('GET /tasks?tag=<tag>&overdue=true narrows both filters together (AND)', as
     body.map((t) => t.id),
     [overdueHome.id],
   );
+});
+
+test('AC1: GET /tasks?sort=priority returns high-priority tasks before normal, and normal before low', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const low = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Low', priority: 'low' } })
+  ).json();
+  const high = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'High', priority: 'high' } })
+  ).json();
+  const normal = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Normal', priority: 'normal' },
+    })
+  ).json();
+
+  const res = await request(ctx.socketPath, { path: '/tasks?sort=priority' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [high.id, normal.id, low.id],
+  );
+});
+
+test('AC2: GET /tasks?sort=priority orders tasks within a tier by due date ascending', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const late = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Late', priority: 'high', due: '2026-03-01' },
+    })
+  ).json();
+  const early = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Early', priority: 'high', due: '2026-01-01' },
+    })
+  ).json();
+  const mid = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Mid', priority: 'high', due: '2026-02-01' },
+    })
+  ).json();
+
+  const res = await request(ctx.socketPath, { path: '/tasks?sort=priority' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [early.id, mid.id, late.id],
+  );
+});
+
+test('AC3: GET /tasks?sort=priority returns undated tasks after dated tasks within a tier', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const undated = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'No due date', priority: 'high' },
+    })
+  ).json();
+  const dated = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Has a due date', priority: 'high', due: '2026-01-01' },
+    })
+  ).json();
+
+  const res = await request(ctx.socketPath, { path: '/tasks?sort=priority' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [dated.id, undated.id],
+  );
+});
+
+test('AC4: GET /tasks with an unrecognised sort value returns a 400 naming the accepted value(s)', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const res = await request(ctx.socketPath, { path: '/tasks?sort=bogus' });
+  const body = res.json();
+
+  assert.equal(res.status, 400);
+  assert.match(body.error, /priority/);
+});
+
+test('AC5: GET /tasks?sort=priority&overdue=true applies the overdue filter, then sorts by priority', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const overdueLow = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Overdue low', priority: 'low', due: '2020-01-02' },
+    })
+  ).json();
+  const overdueHigh = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Overdue high', priority: 'high', due: '2020-01-01' },
+    })
+  ).json();
+  await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Future high', priority: 'high', due: '2099-01-01' },
+  });
+
+  const res = await request(ctx.socketPath, { path: '/tasks?sort=priority&overdue=true' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [overdueHigh.id, overdueLow.id],
+  );
+});
+
+test('AC5: GET /tasks?sort=priority&tag=<tag> applies the tag filter, then sorts by priority', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const homeLow = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Home low', priority: 'low', tags: ['home'] },
+    })
+  ).json();
+  const homeHigh = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Home high', priority: 'high', tags: ['home'] },
+    })
+  ).json();
+  await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Work high', priority: 'high', tags: ['work'] },
+  });
+
+  const res = await request(ctx.socketPath, { path: '/tasks?sort=priority&tag=home' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [homeHigh.id, homeLow.id],
+  );
+});
+
+test('AC5: GET /tasks?sort=priority&overdue=true&tag=<tag> applies both filters, then sorts by priority', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const overdueHomeLow = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Overdue home low', priority: 'low', due: '2020-01-02', tags: ['home'] },
+    })
+  ).json();
+  const overdueHomeHigh = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Overdue home high', priority: 'high', due: '2020-01-01', tags: ['home'] },
+    })
+  ).json();
+  await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Overdue work high', priority: 'high', due: '2020-01-01', tags: ['work'] },
+  });
+  await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Future home high', priority: 'high', due: '2099-01-01', tags: ['home'] },
+  });
+
+  const res = await request(ctx.socketPath, { path: '/tasks?sort=priority&overdue=true&tag=home' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [overdueHomeHigh.id, overdueHomeLow.id],
+  );
+});
+
+test('AC6: GET /tasks without a sort parameter keeps returning tasks in insertion order', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const a = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'First', priority: 'low' } })
+  ).json();
+  const b = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Second', priority: 'high' } })
+  ).json();
+  const c = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Third', priority: 'normal' },
+    })
+  ).json();
+
+  const res = await request(ctx.socketPath, { path: '/tasks' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [a.id, b.id, c.id],
+  );
+});
+
+test('AC7: README documents the sort query parameter and its ordering rules', async () => {
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+  const start = readme.indexOf('### `GET /tasks`');
+  const end = readme.indexOf('### `PATCH /tasks/:id`');
+  assert.ok(start !== -1 && end !== -1 && start < end, 'README must have a GET /tasks section');
+  const section = readme.slice(start, end);
+
+  assert.match(section, /`sort`/);
+  assert.match(section, /priority/i);
+  assert.match(section, /high.*normal.*low/is);
+  assert.match(section, /ascending/i);
+  assert.match(section, /(undated|no due date)/i);
+  assert.match(section, /400/);
 });
 
 test('POST /tasks accepts an optional due date and returns it', async (t) => {
