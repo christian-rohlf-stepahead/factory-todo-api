@@ -87,13 +87,15 @@ Query parameters:
 - `sort` — when `priority`, order results by priority: `high` tasks first,
   then `normal`, then `low`. Within a priority tier, tasks are ordered by
   `due` date ascending (soonest first); undated tasks come after all dated
-  tasks in that tier. Omitting the parameter keeps insertion order. Any other
-  value returns `400 Bad Request` naming the accepted value (`priority`).
+  tasks in that tier. When `due`, order results by `due` date ascending
+  (soonest first), with undated tasks after all dated tasks. Omitting the
+  parameter keeps insertion order. Any other value returns `400 Bad Request`
+  naming the accepted values (`priority`, `due`).
 
 `overdue` and `tag` narrow the list (AND) before `sort` orders what remains.
 
 Response: `200 OK` with an array of tasks, `400 Bad Request` if `sort` is
-present and isn't `"priority"`.
+present and isn't `"priority"` or `"due"`.
 
 ### `PATCH /tasks/:id`
 

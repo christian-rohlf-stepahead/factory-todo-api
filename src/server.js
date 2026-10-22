@@ -44,7 +44,7 @@ export async function createServer({ dbPath, client } = {}) {
         const tag = url.searchParams.get('tag') ?? undefined;
         const sort = url.searchParams.get('sort') ?? undefined;
         if (sort !== undefined && !isValidSort(sort)) {
-          sendJson(res, 400, { error: '"sort" must be one of "priority".' });
+          sendJson(res, 400, { error: '"sort" must be one of "priority", "due".' });
           return;
         }
         sendJson(res, 200, await store.list({ overdue, tag, sort }));
