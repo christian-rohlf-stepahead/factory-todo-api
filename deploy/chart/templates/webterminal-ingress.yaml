@@ -1,0 +1,19 @@
+{{- if .Values.webTerminal.image }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-web-terminal
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: {{ .Values.webTerminal.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-web-terminal
+                port:
+                  number: {{ .Values.webTerminal.port | default 3000 }}
+{{- end }}

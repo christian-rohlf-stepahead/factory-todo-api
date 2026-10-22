@@ -1,0 +1,20 @@
+postgres:
+  image: postgres:16-alpine
+  user: todo
+  password: todo
+  database: todo
+  storage: 1Gi
+
+api:
+  image: ""
+  host: ""
+
+web:
+  image: ""
+  host: ""
+  port: 3000
+
+webTerminal:
+  image: ""
+  host: ""
+  port: 3000

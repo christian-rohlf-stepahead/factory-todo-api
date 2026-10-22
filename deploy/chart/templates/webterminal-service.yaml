@@ -1,0 +1,12 @@
+{{- if .Values.webTerminal.image }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-web-terminal
+spec:
+  selector:
+    app: {{ .Release.Name }}-web-terminal
+  ports:
+    - port: {{ .Values.webTerminal.port | default 3000 }}
+      targetPort: {{ .Values.webTerminal.port | default 3000 }}
+{{- end }}
