@@ -81,6 +81,39 @@ test('AC2: Postgres-backed TaskStore throws TaskNotFoundError for an unknown id'
   await assert.rejects(() => store.delete('missing-id'), { name: 'TaskNotFoundError' });
 });
 
+test('AC1: Postgres-backed TaskStore list({ sort: "due" }) orders tasks by due date ascending, with undated tasks last', async () => {
+  const store = new TaskStore(createFakeClient());
+  await store.load();
+
+  const late = await store.create('Late', '2026-03-01');
+  const undated = await store.create('No due date');
+  const early = await store.create('Early', '2026-01-01');
+
+  const tasks = await store.list({ sort: 'due' });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [early.id, late.id, undated.id],
+  );
+});
+
+test('AC2: Postgres-backed TaskStore list({ sort: "priority" }) orders high before normal before low, tie-broken by due date ascending with undated last', async () => {
+  const store = new TaskStore(createFakeClient());
+  await store.load();
+
+  const lowUndated = await store.create('Low undated', null, 'low');
+  const highLate = await store.create('High late', '2026-03-01', 'high');
+  const highEarly = await store.create('High early', '2026-01-01', 'high');
+  const normal = await store.create('Normal', null, 'normal');
+
+  const tasks = await store.list({ sort: 'priority' });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [highEarly.id, highLate.id, normal.id, lowUndated.id],
+  );
+});
+
 test('AC2: Postgres-backed TaskStore tasks persist across store instances sharing the same client, as a restart would against the same database', async () => {
   const client = createFakeClient();
 

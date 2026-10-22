@@ -27,13 +27,20 @@ export function isValidPriority(value) {
   return PRIORITIES.includes(value);
 }
 
-export const SORT_VALUES = ['priority'];
+export const SORT_VALUES = ['priority', 'due'];
 
 export function isValidSort(value) {
   return SORT_VALUES.includes(value);
 }
 
 const PRIORITY_RANK = { high: 0, normal: 1, low: 2 };
+
+function compareDue(a, b) {
+  if (a.due === null && b.due === null) return 0;
+  if (a.due === null) return 1;
+  if (b.due === null) return -1;
+  return a.due < b.due ? -1 : a.due > b.due ? 1 : 0;
+}
 
 const TAG_RE = /^[a-z]+$/;
 
@@ -84,11 +91,10 @@ export class TaskStore {
       tasks.sort((a, b) => {
         const priorityDiff = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
         if (priorityDiff !== 0) return priorityDiff;
-        if (a.due === null && b.due === null) return 0;
-        if (a.due === null) return 1;
-        if (b.due === null) return -1;
-        return a.due < b.due ? -1 : a.due > b.due ? 1 : 0;
+        return compareDue(a, b);
       });
+    } else if (sort === 'due') {
+      tasks.sort(compareDue);
     }
     return tasks;
   }
