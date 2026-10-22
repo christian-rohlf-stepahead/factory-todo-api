@@ -1,12 +1,13 @@
 # Todo API
 
-An HTTP JSON API for a simple todo list. Tasks are persisted to a JSON file on
-disk, so the list survives an API restart. There is no authentication; this
-is a local proof-of-concept.
+An HTTP JSON API for a simple todo list. Tasks are persisted to Postgres, so
+the list survives an API restart. There is no authentication; this is a local
+proof-of-concept.
 
 ## Requirements
 
-- Node.js 22 or later (uses only built-in modules — no dependencies to install)
+- Node.js 22 or later
+- A Postgres database, when running against Postgres (see below)
 
 ## Running locally
 
@@ -14,16 +15,23 @@ is a local proof-of-concept.
 npm start
 ```
 
-By default the API listens on `http://localhost:3000` and stores tasks in
-`./data/tasks.json` (created automatically on first write).
+By default — with no `DATABASE_URL` set — the API listens on
+`http://localhost:3000` and stores tasks in `./data/tasks.json` (created
+automatically on first write), for local development without a database.
 
 Configure these with environment variables:
 
 - `PORT` — port to listen on (default `3000`)
-- `TODO_DB_PATH` — path to the JSON file used for storage (default `./data/tasks.json`)
+- `DATABASE_URL` — a Postgres connection string (e.g.
+  `postgres://user:pass@localhost:5432/todo`). When set, the API connects to
+  Postgres, runs its migration (creating the schema and, on a fresh database,
+  seeding three example todos) on startup, and stores tasks there instead of
+  the JSON file.
+- `TODO_DB_PATH` — path to the JSON file used for storage when `DATABASE_URL`
+  is not set (default `./data/tasks.json`)
 
 ```sh
-PORT=4000 TODO_DB_PATH=/tmp/tasks.json npm start
+PORT=4000 DATABASE_URL=postgres://user:pass@localhost:5432/todo npm start
 ```
 
 ## Running the tests
