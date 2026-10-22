@@ -313,6 +313,140 @@ test('AC4: GET /tasks with an unrecognised sort value returns a 400 naming the a
   assert.match(body.error, /priority/);
 });
 
+test('AC1: GET /tasks?sort=due orders todos by due date ascending', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const late = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Late', due: '2026-03-01' } })
+  ).json();
+  const early = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Early', due: '2026-01-01' } })
+  ).json();
+  const mid = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Mid', due: '2026-02-01' } })
+  ).json();
+
+  const res = await request(ctx.socketPath, { path: '/tasks?sort=due' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [early.id, mid.id, late.id],
+  );
+});
+
+test('AC1: GET /tasks?sort=due places todos with no due date after all dated todos', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const undated = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'No due date' } })
+  ).json();
+  const dated = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Has a due date', due: '2026-01-01' },
+    })
+  ).json();
+
+  const res = await request(ctx.socketPath, { path: '/tasks?sort=due' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [dated.id, undated.id],
+  );
+});
+
+test('AC1: GET /tasks?sort=due&overdue=true applies the overdue filter first, then sorts by due date ascending', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const overdueLate = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Overdue late', due: '2020-01-02' },
+    })
+  ).json();
+  const overdueEarly = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Overdue early', due: '2020-01-01' },
+    })
+  ).json();
+  await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Future', due: '2099-01-01' } });
+
+  const res = await request(ctx.socketPath, { path: '/tasks?sort=due&overdue=true' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [overdueEarly.id, overdueLate.id],
+  );
+});
+
+test('AC2: GET /tasks?sort=priority keeps its exact order and due-date tie-break now that sort=due exists', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const lowUndated = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Low undated', priority: 'low' },
+    })
+  ).json();
+  const highLate = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'High late', priority: 'high', due: '2026-03-01' },
+    })
+  ).json();
+  const highEarly = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'High early', priority: 'high', due: '2026-01-01' },
+    })
+  ).json();
+  const normal = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Normal', priority: 'normal' },
+    })
+  ).json();
+
+  const res = await request(ctx.socketPath, { path: '/tasks?sort=priority' });
+  const body = res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.map((t) => t.id),
+    [highEarly.id, highLate.id, normal.id, lowUndated.id],
+  );
+});
+
+test('AC3: GET /tasks with an unsupported sort value returns 400 listing both "priority" and "due" as supported', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const res = await request(ctx.socketPath, { path: '/tasks?sort=bogus' });
+  const body = res.json();
+
+  assert.equal(res.status, 400);
+  assert.match(body.error, /priority/);
+  assert.match(body.error, /due/);
+});
+
 test('AC5: GET /tasks?sort=priority&overdue=true applies the overdue filter, then sorts by priority', async (t) => {
   const ctx = await startTestServer();
   t.after(() => stop(ctx));

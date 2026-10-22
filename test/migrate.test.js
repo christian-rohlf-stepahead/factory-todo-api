@@ -71,6 +71,32 @@ test('AC1: migrate() creates the schema so tasks created afterwards persist and 
   assert.deepEqual(found.tags, ['home']);
 });
 
+test('AC4: migrate() seeds exactly the three todos the intent and its browser tests rely on: "Renew the parking permit" (overdue), "Water the office plants" (done, no due date), and "Plan the team offsite" (due in future)', async () => {
+  const client = createFakeClient();
+  await migrate(client);
+  const store = new TaskStore(client);
+  await store.load();
+  const tasks = await store.list();
+  const today = new Date().toISOString().slice(0, 10);
+
+  assert.equal(tasks.length, 3);
+
+  const parkingPermit = tasks.find((t) => t.title === 'Renew the parking permit');
+  assert.ok(parkingPermit, 'expected a seeded todo titled "Renew the parking permit"');
+  assert.equal(parkingPermit.completed, false);
+  assert.ok(parkingPermit.due !== null && parkingPermit.due < today, 'expected it to be overdue');
+
+  const officePlants = tasks.find((t) => t.title === 'Water the office plants');
+  assert.ok(officePlants, 'expected a seeded todo titled "Water the office plants"');
+  assert.equal(officePlants.completed, true);
+  assert.equal(officePlants.due, null);
+
+  const teamOffsite = tasks.find((t) => t.title === 'Plan the team offsite');
+  assert.ok(teamOffsite, 'expected a seeded todo titled "Plan the team offsite"');
+  assert.equal(teamOffsite.completed, false);
+  assert.ok(teamOffsite.due !== null && teamOffsite.due > today, 'expected it to be due in the future');
+});
+
 test('AC1: migrate() is idempotent — running it again on an already-seeded database does not duplicate the seed todos', async () => {
   const client = createFakeClient();
 

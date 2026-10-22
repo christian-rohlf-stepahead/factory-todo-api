@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { TaskStore, isValidTags } from '../src/store.js';
+import { TaskStore, isValidTags, isValidSort } from '../src/store.js';
 
 async function tempDbPath() {
   const dir = await mkdtemp(path.join(tmpdir(), 'todo-api-test-'));
@@ -397,6 +397,94 @@ test('loads pre-existing tasks written before tags existed, defaulting tags to a
   assert.deepEqual(store.list(), [
     { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
   ]);
+});
+
+test('AC1: isValidSort accepts "due" in addition to "priority"', () => {
+  assert.equal(isValidSort('due'), true);
+  assert.equal(isValidSort('priority'), true);
+  assert.equal(isValidSort('bogus'), false);
+});
+
+test('AC1: store.list({ sort: "due" }) orders tasks by due date ascending', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const late = await store.create('Late', '2026-03-01');
+  const early = await store.create('Early', '2026-01-01');
+  const mid = await store.create('Mid', '2026-02-01');
+
+  const tasks = store.list({ sort: 'due' });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [early.id, mid.id, late.id],
+  );
+});
+
+test('AC1: store.list({ sort: "due" }) places undated tasks after all dated tasks', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const undated = await store.create('No due date');
+  const dated = await store.create('Has a due date', '2026-01-01');
+
+  const tasks = store.list({ sort: 'due' });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [dated.id, undated.id],
+  );
+});
+
+test('AC1: store.list({ sort: "due" }) keeps insertion order among tasks with equal due dates, and among undated tasks, while still grouping dated before undated', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const firstUndated = await store.create('First undated');
+  const firstSameDate = await store.create('First same date', '2026-01-01');
+  const secondUndated = await store.create('Second undated');
+  const secondSameDate = await store.create('Second same date', '2026-01-01');
+
+  const tasks = store.list({ sort: 'due' });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [firstSameDate.id, secondSameDate.id, firstUndated.id, secondUndated.id],
+  );
+});
+
+test('AC1: store.list({ sort: "due", overdue: true }) filters by overdue first, then sorts by due date ascending', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const overdueLate = await store.create('Overdue late', '2020-01-02');
+  const overdueEarly = await store.create('Overdue early', '2020-01-01');
+  await store.create('Future', '2099-01-01');
+
+  const tasks = store.list({ sort: 'due', overdue: true });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [overdueEarly.id, overdueLate.id],
+  );
+});
+
+test('AC2: store.list({ sort: "priority" }) still orders by priority tier, then due date ascending with undated last, now that "due" is also a valid sort value', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const lowUndated = await store.create('Low undated', null, 'low');
+  const highLate = await store.create('High late', '2026-03-01', 'high');
+  const highEarly = await store.create('High early', '2026-01-01', 'high');
+  const highUndated = await store.create('High undated', null, 'high');
+  const normal = await store.create('Normal', null, 'normal');
+
+  const tasks = store.list({ sort: 'priority' });
+
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    [highEarly.id, highLate.id, highUndated.id, normal.id, lowUndated.id],
+  );
 });
 
 test('isValidTags accepts only arrays of lowercase-letter strings', () => {
