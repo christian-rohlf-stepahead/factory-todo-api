@@ -7,6 +7,7 @@ import {
   isValidTags,
   isValidSort,
 } from './store.js';
+import { TaskStore as PgTaskStore } from './pgStore.js';
 
 function sendJson(res, status, body) {
   const data = JSON.stringify(body);
@@ -24,8 +25,8 @@ async function readJsonBody(req) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-export async function createServer({ dbPath }) {
-  const store = new TaskStore(dbPath);
+export async function createServer({ dbPath, client } = {}) {
+  const store = client ? new PgTaskStore(client) : new TaskStore(dbPath);
   await store.load();
 
   return createHttpServer(async (req, res) => {
@@ -46,7 +47,7 @@ export async function createServer({ dbPath }) {
           sendJson(res, 400, { error: '"sort" must be one of "priority".' });
           return;
         }
-        sendJson(res, 200, store.list({ overdue, tag, sort }));
+        sendJson(res, 200, await store.list({ overdue, tag, sort }));
         return;
       }
 
