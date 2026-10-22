@@ -1,0 +1,12 @@
+{{- if .Values.web.image }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-web
+spec:
+  selector:
+    app: {{ .Release.Name }}-web
+  ports:
+    - port: {{ .Values.web.port | default 3000 }}
+      targetPort: {{ .Values.web.port | default 3000 }}
+{{- end }}

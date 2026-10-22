@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "images": [
+    { "name": "api", "dockerfile": "Dockerfile", "context": "." },
+    { "name": "deploy", "dockerfile": "deploy/Dockerfile", "context": "deploy" }
+  ],
+  "host": { "path": "/tasks" },
+  "deploy": { "image": "deploy", "command": ["sh", "deploy.sh"], "timeoutSeconds": 600 }
+}

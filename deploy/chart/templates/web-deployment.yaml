@@ -1,0 +1,54 @@
+{{- if .Values.web.image }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-web
+  labels:
+    app: {{ .Release.Name }}-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-web
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: {{ .Values.web.image | quote }}
+          ports:
+            - containerPort: {{ .Values.web.port | default 3000 }}
+          env:
+            - name: PORT
+              value: {{ .Values.web.port | default 3000 | quote }}
+            - name: TODO_API_URL
+              value: "http://{{ .Release.Name }}-api:3000"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.web.port | default 3000 }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+{{- end }}
