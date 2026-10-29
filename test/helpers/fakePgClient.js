@@ -7,6 +7,15 @@
 // column, like Postgres does), INSERT (with optional ON CONFLICT ... DO
 // NOTHING and RETURNING), SELECT (optionally filtered by `WHERE id = $n`),
 // UPDATE ... SET ... WHERE id = $n, and DELETE FROM tasks WHERE id = $n.
+//
+// It tracks which columns exist, seeded with the columns this product's
+// tasks table has always had, plus any a test adds via ALTER TABLE — same as
+// Postgres, SELECT/UPDATE on an undeclared column throws. This lets a test
+// tell a real migration apart from an app-layer stand-in: a column only
+// pgStore.js knows about, that migrate() never declared, doesn't exist here
+// either.
+
+const BASELINE_COLUMNS = ['seq', 'id', 'title', 'completed', 'due', 'priority', 'tags'];
 
 function resolveParam(placeholder, params) {
   const match = placeholder.match(/^\$(\d+)$/);
@@ -19,8 +28,13 @@ function findWhereIdParamIndex(sql) {
   return match ? Number(match[1]) - 1 : null;
 }
 
+function splitList(text) {
+  return text.split(',').map((part) => part.trim()).filter(Boolean);
+}
+
 export function createFakeClient() {
   let tasks = [];
+  const columns = new Set(BASELINE_COLUMNS);
 
   return {
     async query(text, params = []) {
@@ -36,6 +50,7 @@ export function createFakeClient() {
         );
         if (!match) throw new Error(`Unsupported ALTER TABLE in fake client: ${sql}`);
         const [, column, defaultValue] = match;
+        columns.add(column);
         for (const task of tasks) {
           if (!(column in task)) task[column] = defaultValue;
         }
@@ -61,9 +76,20 @@ export function createFakeClient() {
       }
 
       if (/^SELECT/i.test(sql) && /FROM tasks/i.test(sql)) {
+        const columnsMatch = sql.match(/^SELECT\s+(.+?)\s+FROM\s+tasks/i);
+        const requested = columnsMatch ? splitList(columnsMatch[1]) : ['*'];
+        if (!requested.includes('*')) {
+          for (const col of requested) {
+            if (!columns.has(col)) throw new Error(`column "${col}" does not exist`);
+          }
+        }
         const idIdx = findWhereIdParamIndex(sql);
         const rows = idIdx === null ? tasks : tasks.filter((t) => t.id === params[idIdx]);
-        return { rows: rows.map((t) => ({ ...t })) };
+        return {
+          rows: rows.map((t) =>
+            requested.includes('*') ? { ...t } : Object.fromEntries(requested.map((col) => [col, t[col] ?? null])),
+          ),
+        };
       }
 
       if (/^UPDATE tasks/i.test(sql)) {
@@ -76,6 +102,7 @@ export function createFakeClient() {
         if (setClause) {
           for (const assignment of setClause[1].split(',')) {
             const [col, placeholder] = assignment.split('=').map((s) => s.trim());
+            if (!columns.has(col)) throw new Error(`column "${col}" does not exist`);
             task[col] = resolveParam(placeholder, params);
           }
         }

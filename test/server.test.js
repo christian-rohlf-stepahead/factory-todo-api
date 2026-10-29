@@ -1063,6 +1063,25 @@ test('AC3: PATCH /tasks/:id accepts an optional note up to 500 characters and up
   assert.equal(res.json().note, note);
 });
 
+test('AC3: PATCH /tasks/:id accepts a note of exactly 500 characters', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const created = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Buy milk' } })
+  ).json();
+
+  const note = 'x'.repeat(500);
+  const res = await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${created.id}`,
+    body: { note },
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.json().note, note);
+});
+
 test('AC4: PATCH /tasks/:id with a note over 500 characters is refused with 400, leaving the existing note unchanged', async (t) => {
   const ctx = await startTestServer();
   t.after(() => stop(ctx));

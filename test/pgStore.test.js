@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TaskStore } from '../src/pgStore.js';
+import { migrate } from '../src/migrate.js';
 import { createFakeClient } from './helpers/fakePgClient.js';
 
 test("AC2: Postgres-backed TaskStore creates a task with a unique id and not-done status, matching the JSON-backed store's documented behaviour", async () => {
@@ -115,7 +116,9 @@ test('AC2: Postgres-backed TaskStore list({ sort: "priority" }) orders high befo
 });
 
 test('AC6: Postgres-backed TaskStore defaults note to an empty string', async () => {
-  const store = new TaskStore(createFakeClient());
+  const client = createFakeClient();
+  await migrate(client);
+  const store = new TaskStore(client);
   await store.load();
 
   const task = await store.create('Buy milk');
@@ -124,7 +127,9 @@ test('AC6: Postgres-backed TaskStore defaults note to an empty string', async ()
 });
 
 test('AC3/AC5: Postgres-backed TaskStore sets and clears a note via update', async () => {
-  const store = new TaskStore(createFakeClient());
+  const client = createFakeClient();
+  await migrate(client);
+  const store = new TaskStore(client);
   await store.load();
   const task = await store.create('Buy milk');
 
