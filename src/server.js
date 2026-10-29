@@ -6,6 +6,7 @@ import {
   isValidPriority,
   isValidTags,
   isValidSort,
+  isValidNote,
 } from './store.js';
 import { TaskStore as PgTaskStore } from './pgStore.js';
 
@@ -82,7 +83,15 @@ export async function createServer({ dbPath, client } = {}) {
           }
           tags = body.tags;
         }
-        const task = await store.create(title, due, priority, tags);
+        let note = '';
+        if ('note' in body) {
+          if (!isValidNote(body.note)) {
+            sendJson(res, 400, { error: '"note" must be a string of at most 500 characters.' });
+            return;
+          }
+          note = body.note;
+        }
+        const task = await store.create(title, due, priority, tags, note);
         sendJson(res, 201, task);
         return;
       }
@@ -94,10 +103,11 @@ export async function createServer({ dbPath, client } = {}) {
         const hasDue = 'due' in body;
         const hasPriority = 'priority' in body;
         const hasTags = 'tags' in body;
+        const hasNote = 'note' in body;
 
-        if (!hasCompleted && !hasDue && !hasPriority && !hasTags) {
+        if (!hasCompleted && !hasDue && !hasPriority && !hasTags && !hasNote) {
           sendJson(res, 400, {
-            error: 'At least one of "completed", "due", "priority", or "tags" must be provided.',
+            error: 'At least one of "completed", "due", "priority", "tags", or "note" must be provided.',
           });
           return;
         }
@@ -117,11 +127,16 @@ export async function createServer({ dbPath, client } = {}) {
           sendJson(res, 400, { error: '"tags" must be an array of lowercase-letter strings.' });
           return;
         }
+        if (hasNote && !isValidNote(body.note)) {
+          sendJson(res, 400, { error: '"note" must be a string of at most 500 characters.' });
+          return;
+        }
         const patch = {};
         if (hasCompleted) patch.completed = body.completed;
         if (hasDue) patch.due = body.due;
         if (hasPriority) patch.priority = body.priority;
         if (hasTags) patch.tags = body.tags;
+        if (hasNote) patch.note = body.note;
         const task = await store.update(id, patch);
         sendJson(res, 200, task);
         return;

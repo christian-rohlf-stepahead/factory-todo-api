@@ -22,6 +22,7 @@ function seedTasks() {
       due: isoDateOffset(-7),
       priority: 'high',
       tags: ['errands'],
+      note: '',
     },
     {
       id: SEED_IDS.completedLow,
@@ -30,6 +31,7 @@ function seedTasks() {
       due: null,
       priority: 'low',
       tags: [],
+      note: '',
     },
     {
       id: SEED_IDS.futurePlain,
@@ -38,6 +40,7 @@ function seedTasks() {
       due: isoDateOffset(30),
       priority: 'normal',
       tags: [],
+      note: '',
     },
   ];
 }
@@ -59,10 +62,12 @@ export async function migrate(client) {
     )
   `);
 
+  await client.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT ''`);
+
   for (const seed of seedTasks()) {
     await client.query(
-      'INSERT INTO tasks (id, title, completed, due, priority, tags) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING',
-      [seed.id, seed.title, seed.completed, seed.due, seed.priority, seed.tags],
+      'INSERT INTO tasks (id, title, completed, due, priority, tags, note) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING',
+      [seed.id, seed.title, seed.completed, seed.due, seed.priority, seed.tags, seed.note],
     );
   }
 }
