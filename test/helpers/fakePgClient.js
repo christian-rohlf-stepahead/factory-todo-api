@@ -2,10 +2,11 @@
 // with an async `query(text, params)` method returning `{ rows }`), so
 // Postgres-backed code can be exercised in tests without a real Postgres
 // server. It understands only the small, generic subset of SQL a
-// single-table `tasks` store needs: CREATE TABLE, INSERT (with optional
-// ON CONFLICT ... DO NOTHING and RETURNING), SELECT (optionally filtered by
-// `WHERE id = $n`), UPDATE ... SET ... WHERE id = $n, and
-// DELETE FROM tasks WHERE id = $n.
+// single-table `tasks` store needs: CREATE TABLE, ALTER TABLE ... ADD COLUMN
+// IF NOT EXISTS ... DEFAULT '...' (backfills existing rows missing the
+// column, like Postgres does), INSERT (with optional ON CONFLICT ... DO
+// NOTHING and RETURNING), SELECT (optionally filtered by `WHERE id = $n`),
+// UPDATE ... SET ... WHERE id = $n, and DELETE FROM tasks WHERE id = $n.
 
 function resolveParam(placeholder, params) {
   const match = placeholder.match(/^\$(\d+)$/);
@@ -26,6 +27,18 @@ export function createFakeClient() {
       const sql = text.trim();
 
       if (/^CREATE TABLE/i.test(sql)) {
+        return { rows: [] };
+      }
+
+      if (/^ALTER TABLE/i.test(sql)) {
+        const match = sql.match(
+          /ADD COLUMN\s+(?:IF NOT EXISTS\s+)?(\w+)\s+\w+(?:\([^)]*\))?(?:\s+NOT NULL)?\s+DEFAULT\s+'([^']*)'/i,
+        );
+        if (!match) throw new Error(`Unsupported ALTER TABLE in fake client: ${sql}`);
+        const [, column, defaultValue] = match;
+        for (const task of tasks) {
+          if (!(column in task)) task[column] = defaultValue;
+        }
         return { rows: [] };
       }
 

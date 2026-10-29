@@ -97,6 +97,36 @@ test('AC4: migrate() seeds exactly the three todos the intent and its browser te
   assert.ok(teamOffsite.due !== null && teamOffsite.due > today, 'expected it to be due in the future');
 });
 
+test('AC9: migrate() backfills a pre-existing row with an empty note', async () => {
+  const client = createFakeClient();
+  await client.query(
+    'INSERT INTO tasks (id, title, completed, due, priority, tags) VALUES ($1, $2, $3, $4, $5, $6)',
+    ['legacy-1', 'Buy milk', false, null, 'normal', []],
+  );
+
+  await migrate(client);
+
+  const store = new TaskStore(client);
+  await store.load();
+  const tasks = await store.list();
+  const legacy = tasks.find((t) => t.id === 'legacy-1');
+
+  assert.ok(legacy, 'expected the pre-existing row to still be present after migration');
+  assert.equal(legacy.note, '');
+});
+
+test('AC9: migrate() adds a note column so a note set afterwards is persisted', async () => {
+  const client = createFakeClient();
+  await migrate(client);
+  const store = new TaskStore(client);
+  await store.load();
+  const created = await store.create('Buy milk');
+
+  const updated = await store.update(created.id, { note: 'Ask Sam about the delivery window.' });
+
+  assert.equal(updated.note, 'Ask Sam about the delivery window.');
+});
+
 test('AC1: migrate() is idempotent — running it again on an already-seeded database does not duplicate the seed todos', async () => {
   const client = createFakeClient();
 
