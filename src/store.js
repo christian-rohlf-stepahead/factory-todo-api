@@ -52,6 +52,10 @@ export function isValidTags(value) {
   return Array.isArray(value) && value.every(isValidTag);
 }
 
+export function isValidNote(value) {
+  return typeof value === 'string' && value.length <= 500;
+}
+
 function dedupeTags(tags) {
   return [...new Set(tags)];
 }
@@ -65,7 +69,13 @@ export class TaskStore {
   async load() {
     try {
       const raw = await readFile(this.dbPath, 'utf8');
-      this.tasks = JSON.parse(raw).map((task) => ({ due: null, priority: 'normal', tags: [], ...task }));
+      this.tasks = JSON.parse(raw).map((task) => ({
+        due: null,
+        priority: 'normal',
+        tags: [],
+        note: '',
+        ...task,
+      }));
     } catch (err) {
       if (err.code !== 'ENOENT') throw err;
       this.tasks = [];
@@ -99,8 +109,16 @@ export class TaskStore {
     return tasks;
   }
 
-  async create(title, due = null, priority = 'normal', tags = []) {
-    const task = { id: randomUUID(), title, completed: false, due, priority, tags: dedupeTags(tags) };
+  async create(title, due = null, priority = 'normal', tags = [], note = '') {
+    const task = {
+      id: randomUUID(),
+      title,
+      completed: false,
+      due,
+      priority,
+      tags: dedupeTags(tags),
+      note,
+    };
     this.tasks.push(task);
     await this.#save();
     return { ...task };
@@ -116,12 +134,13 @@ export class TaskStore {
     return this.update(id, { completed });
   }
 
-  async update(id, { completed, due, priority, tags } = {}) {
+  async update(id, { completed, due, priority, tags, note } = {}) {
     const task = this.#find(id);
     if (completed !== undefined) task.completed = completed;
     if (due !== undefined) task.due = due;
     if (priority !== undefined) task.priority = priority;
     if (tags !== undefined) task.tags = dedupeTags(tags);
+    if (note !== undefined) task.note = note;
     await this.#save();
     return { ...task };
   }

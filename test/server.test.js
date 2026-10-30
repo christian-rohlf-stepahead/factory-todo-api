@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
@@ -80,7 +80,7 @@ test('GET /tasks lists all tasks with id, title, status and due date', async (t)
 
   assert.equal(res.status, 200);
   assert.equal(body.length, 1);
-  assert.deepEqual(Object.keys(body[0]).sort(), ['completed', 'due', 'id', 'priority', 'tags', 'title']);
+  assert.deepEqual(Object.keys(body[0]).sort(), ['completed', 'due', 'id', 'note', 'priority', 'tags', 'title']);
   assert.equal(body[0].due, null);
   assert.equal(body[0].priority, 'normal');
   assert.deepEqual(body[0].tags, []);
@@ -989,8 +989,216 @@ test('tasks survive a server restart against the same JSON file', async (t) => {
   try {
     const list = (await request(socketPath2, { path: '/tasks' })).json();
     assert.deepEqual(list, [
-      { id: created.id, title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
+      { id: created.id, title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [], note: '' },
     ]);
+  } finally {
+    second.closeAllConnections();
+    await new Promise((resolve) => second.close(resolve));
+  }
+});
+
+test('AC1: POST /tasks accepts a note up to 500 characters and stores it on the created task', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const note = 'x'.repeat(500);
+  const res = await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Buy milk', note },
+  });
+  const body = res.json();
+
+  assert.equal(res.status, 201);
+  assert.equal(body.note, note);
+});
+
+test('AC1: POST /tasks stores a note exactly as given, without trimming surrounding whitespace', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const note = '  Ask Sam about the delivery window.  ';
+  const res = await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Buy milk', note },
+  });
+
+  assert.equal(res.status, 201);
+  assert.equal(res.json().note, note);
+});
+
+test('AC2: POST /tasks with a note over 500 characters is refused with 400 and creates no task', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const res = await request(ctx.socketPath, {
+    method: 'POST',
+    path: '/tasks',
+    body: { title: 'Buy milk', note: 'x'.repeat(501) },
+  });
+  assert.equal(res.status, 400);
+  assert.ok(res.json().error);
+
+  const list = (await request(ctx.socketPath, { path: '/tasks' })).json();
+  assert.deepEqual(list, []);
+});
+
+test('AC3: PATCH /tasks/:id accepts an optional note up to 500 characters and updates the task\'s note', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const created = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Buy milk' } })
+  ).json();
+
+  const note = 'Ask Sam about the delivery window.';
+  const res = await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${created.id}`,
+    body: { note },
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.json().note, note);
+});
+
+test('AC3: PATCH /tasks/:id accepts a note of exactly 500 characters', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const created = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Buy milk' } })
+  ).json();
+
+  const note = 'x'.repeat(500);
+  const res = await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${created.id}`,
+    body: { note },
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.json().note, note);
+});
+
+test('AC4: PATCH /tasks/:id with a note over 500 characters is refused with 400, leaving the existing note unchanged', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const created = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Buy milk', note: 'Keep me' },
+    })
+  ).json();
+
+  const res = await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${created.id}`,
+    body: { note: 'x'.repeat(501) },
+  });
+  assert.equal(res.status, 400);
+  assert.ok(res.json().error);
+
+  const list = (await request(ctx.socketPath, { path: '/tasks' })).json();
+  assert.equal(list[0].note, 'Keep me');
+});
+
+test('AC5: PATCH /tasks/:id accepts note: "" and clears the task\'s note', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const created = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Buy milk', note: 'Something' },
+    })
+  ).json();
+
+  const res = await request(ctx.socketPath, {
+    method: 'PATCH',
+    path: `/tasks/${created.id}`,
+    body: { note: '' },
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.json().note, '');
+});
+
+test('AC6: GET, POST and PATCH /tasks responses all include a note field, an empty string when none was set', async (t) => {
+  const ctx = await startTestServer();
+  t.after(() => stop(ctx));
+
+  const created = (
+    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Buy milk' } })
+  ).json();
+  assert.equal(created.note, '');
+
+  const listed = (await request(ctx.socketPath, { path: '/tasks' })).json();
+  assert.equal(listed[0].note, '');
+
+  const patched = (
+    await request(ctx.socketPath, {
+      method: 'PATCH',
+      path: `/tasks/${created.id}`,
+      body: { completed: true },
+    })
+  ).json();
+  assert.equal(patched.note, '');
+});
+
+test('AC7: a task created before this change reads back with note ""', async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'todo-api-test-'));
+  const dbPath = path.join(dir, 'tasks.json');
+  const socketPath = path.join(dir, 'server.sock');
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  await writeFile(
+    dbPath,
+    JSON.stringify([
+      { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
+    ]),
+  );
+
+  const server = await createServer({ dbPath });
+  await new Promise((resolve) => server.listen(socketPath, resolve));
+  try {
+    const res = await request(socketPath, { path: '/tasks' });
+    assert.equal(res.status, 200);
+    assert.equal(res.json()[0].note, '');
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('AC8: a task\'s note survives a server restart against the same JSON file', async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'todo-api-test-'));
+  const dbPath = path.join(dir, 'tasks.json');
+  const socketPath = path.join(dir, 'server.sock');
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  const first = await createServer({ dbPath });
+  await new Promise((resolve) => first.listen(socketPath, resolve));
+  const created = (
+    await request(socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: { title: 'Buy milk', note: 'Ask Sam about the delivery window.' },
+    })
+  ).json();
+  first.closeAllConnections();
+  await new Promise((resolve) => first.close(resolve));
+
+  const socketPath2 = path.join(dir, 'server2.sock');
+  const second = await createServer({ dbPath });
+  await new Promise((resolve) => second.listen(socketPath2, resolve));
+  try {
+    const list = (await request(socketPath2, { path: '/tasks' })).json();
+    assert.equal(list.find((t) => t.id === created.id)?.note, 'Ask Sam about the delivery window.');
   } finally {
     second.closeAllConnections();
     await new Promise((resolve) => second.close(resolve));

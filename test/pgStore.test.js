@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TaskStore } from '../src/pgStore.js';
+import { migrate } from '../src/migrate.js';
 import { createFakeClient } from './helpers/fakePgClient.js';
 
 test("AC2: Postgres-backed TaskStore creates a task with a unique id and not-done status, matching the JSON-backed store's documented behaviour", async () => {
@@ -112,6 +113,31 @@ test('AC2: Postgres-backed TaskStore list({ sort: "priority" }) orders high befo
     tasks.map((t) => t.id),
     [highEarly.id, highLate.id, normal.id, lowUndated.id],
   );
+});
+
+test('AC6: Postgres-backed TaskStore defaults note to an empty string', async () => {
+  const client = createFakeClient();
+  await migrate(client);
+  const store = new TaskStore(client);
+  await store.load();
+
+  const task = await store.create('Buy milk');
+
+  assert.equal(task.note, '');
+});
+
+test('AC3/AC5: Postgres-backed TaskStore sets and clears a note via update', async () => {
+  const client = createFakeClient();
+  await migrate(client);
+  const store = new TaskStore(client);
+  await store.load();
+  const task = await store.create('Buy milk');
+
+  const withNote = await store.update(task.id, { note: 'Ask Sam about the delivery window.' });
+  assert.equal(withNote.note, 'Ask Sam about the delivery window.');
+
+  const cleared = await store.update(task.id, { note: '' });
+  assert.equal(cleared.note, '');
 });
 
 test('AC2: Postgres-backed TaskStore tasks persist across store instances sharing the same client, as a restart would against the same database', async () => {

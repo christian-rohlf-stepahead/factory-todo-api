@@ -60,7 +60,7 @@ test('lists all tasks with id, title, completion status and due date', async () 
   const tasks = store.list();
 
   assert.equal(tasks.length, 2);
-  assert.deepEqual(Object.keys(tasks[0]).sort(), ['completed', 'due', 'id', 'priority', 'tags', 'title']);
+  assert.deepEqual(Object.keys(tasks[0]).sort(), ['completed', 'due', 'id', 'note', 'priority', 'tags', 'title']);
 });
 
 test('creates a task with a default tags of an empty array', async () => {
@@ -351,7 +351,7 @@ test('persists tasks to the JSON file so they survive a restart', async () => {
   const second = new TaskStore(dbPath);
   await second.load();
   assert.deepEqual(second.list(), [
-    { id: task.id, title: 'Buy milk', completed: true, due: null, priority: 'normal', tags: [] },
+    { id: task.id, title: 'Buy milk', completed: true, due: null, priority: 'normal', tags: [], note: '' },
   ]);
 });
 
@@ -363,7 +363,7 @@ test('loads pre-existing tasks written before due dates existed, defaulting due 
   await store.load();
 
   assert.deepEqual(store.list(), [
-    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [], note: '' },
   ]);
 });
 
@@ -378,7 +378,7 @@ test('loads pre-existing tasks written before priorities existed, defaulting pri
   await store.load();
 
   assert.deepEqual(store.list(), [
-    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [], note: '' },
   ]);
 });
 
@@ -395,7 +395,7 @@ test('loads pre-existing tasks written before tags existed, defaulting tags to a
   await store.load();
 
   assert.deepEqual(store.list(), [
-    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [], note: '' },
   ]);
 });
 
@@ -485,6 +485,58 @@ test('AC2: store.list({ sort: "priority" }) still orders by priority tier, then 
     tasks.map((t) => t.id),
     [highEarly.id, highLate.id, highUndated.id, normal.id, lowUndated.id],
   );
+});
+
+test('AC6: creates a task with a default note of an empty string', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+
+  const task = await store.create('Buy milk');
+
+  assert.equal(task.note, '');
+});
+
+test('AC3/AC5: sets and clears a note independently of completed', async () => {
+  const store = new TaskStore(await tempDbPath());
+  await store.load();
+  const task = await store.create('Buy milk');
+
+  const withNote = await store.update(task.id, { note: 'Ask Sam about the delivery window.' });
+  assert.equal(withNote.note, 'Ask Sam about the delivery window.');
+  assert.equal(withNote.completed, false);
+
+  const cleared = await store.update(task.id, { note: '' });
+  assert.equal(cleared.note, '');
+});
+
+test('AC7: loads pre-existing tasks written before notes existed, defaulting note to an empty string', async () => {
+  const dbPath = await tempDbPath();
+  await writeFile(
+    dbPath,
+    JSON.stringify([
+      { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
+    ]),
+  );
+
+  const store = new TaskStore(dbPath);
+  await store.load();
+
+  assert.deepEqual(store.list(), [
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [], note: '' },
+  ]);
+});
+
+test('AC8: persists a note to the JSON file so it survives a restart', async () => {
+  const dbPath = await tempDbPath();
+
+  const first = new TaskStore(dbPath);
+  await first.load();
+  const task = await first.create('Buy milk');
+  await first.update(task.id, { note: 'Ask Sam about the delivery window.' });
+
+  const second = new TaskStore(dbPath);
+  await second.load();
+  assert.equal(second.list()[0].note, 'Ask Sam about the delivery window.');
 });
 
 test('isValidTags accepts only arrays of lowercase-letter strings', () => {
