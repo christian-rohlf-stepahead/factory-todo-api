@@ -45,11 +45,12 @@ function seedTasks() {
   ];
 }
 
-// Creates the `tasks` schema if it doesn't exist yet, and seeds the three
-// example todos every fresh deployment starts with. Safe to run on every
-// startup: both the table creation and the seed inserts are no-ops when
-// already applied.
-export async function migrate(client) {
+// Creates the `tasks` schema if it doesn't exist yet, including every column
+// added since the table's first version. Safe to run on every startup, and
+// safe for store.js to run defensively before trusting a column is there:
+// both the table creation and the column addition are no-ops when already
+// applied.
+export async function ensureSchema(client) {
   await client.query(`
     CREATE TABLE IF NOT EXISTS tasks (
       seq SERIAL PRIMARY KEY,
@@ -63,6 +64,13 @@ export async function migrate(client) {
   `);
 
   await client.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT ''`);
+}
+
+// Ensures the schema, then seeds the three example todos every fresh
+// deployment starts with. Safe to run on every startup: the seed inserts are
+// a no-op when already applied.
+export async function migrate(client) {
+  await ensureSchema(client);
 
   for (const seed of seedTasks()) {
     await client.query(

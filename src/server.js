@@ -10,6 +10,7 @@ import {
   isValidNote,
 } from './store.js';
 import { TaskStore as PgTaskStore } from './pgStore.js';
+import { ensureSchema } from './migrate.js';
 
 function sendJson(res, status, body) {
   const data = JSON.stringify(body);
@@ -28,6 +29,7 @@ async function readJsonBody(req) {
 }
 
 export async function createServer({ dbPath, client } = {}) {
+  if (client) await ensureSchema(client);
   const store = client ? new PgTaskStore(client) : new TaskStore(dbPath);
   await store.load();
 
