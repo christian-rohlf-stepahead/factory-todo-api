@@ -10,6 +10,7 @@
   },
   "license": "UNLICENSED",
   "dependencies": {
+    "csv-stringify": "^6.9.0",
     "pg": "^8.23.1"
   }
 }
