@@ -12,6 +12,12 @@ if (databaseUrl) {
   // a lone Client rejects (and can crash the process on an unhandled 'error'
   // event) when a second query arrives while one is still in flight.
   const client = new pg.Pool({ connectionString: databaseUrl });
+  // A Pool emits 'error' for a backend/network problem on an idle pooled
+  // client, separately from any in-flight query's own rejection; with no
+  // listener, Node's default EventEmitter behaviour is to crash the process.
+  client.on('error', (err) => {
+    console.error('Unexpected error on an idle Postgres client', err);
+  });
   await migrate(client);
   server = await createServer({ client });
   console.log(`Todo API listening on http://localhost:${port} (storing tasks in Postgres)`);
