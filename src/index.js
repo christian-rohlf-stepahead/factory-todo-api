@@ -8,8 +8,10 @@ const databaseUrl = process.env.DATABASE_URL;
 
 let server;
 if (databaseUrl) {
-  const client = new pg.Client({ connectionString: databaseUrl });
-  await client.connect();
+  // A pool, not a single Client: the server handles concurrent requests, and
+  // a lone Client rejects (and can crash the process on an unhandled 'error'
+  // event) when a second query arrives while one is still in flight.
+  const client = new pg.Pool({ connectionString: databaseUrl });
   await migrate(client);
   server = await createServer({ client });
   console.log(`Todo API listening on http://localhost:${port} (storing tasks in Postgres)`);
