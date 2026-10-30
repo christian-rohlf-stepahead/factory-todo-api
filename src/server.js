@@ -1,4 +1,5 @@
 import { createServer as createHttpServer } from 'node:http';
+import { stringify } from 'csv-stringify/sync';
 import {
   TaskStore,
   TaskNotFoundError,
@@ -34,6 +35,26 @@ export async function createServer({ dbPath, client } = {}) {
     try {
       const url = new URL(req.url, 'http://localhost');
       const segments = url.pathname.split('/').filter(Boolean);
+
+      if (url.pathname === '/tasks.csv' && req.method === 'GET') {
+        const tasks = await store.list();
+        const rows = tasks.map((task) => [
+          task.id,
+          task.title,
+          task.completed ? 'true' : 'false',
+          task.due ?? '',
+          task.priority,
+          task.tags.join(';'),
+          task.note ?? '',
+        ]);
+        const csv = stringify([['id', 'title', 'completed', 'due', 'priority', 'tags', 'note'], ...rows]);
+        res.writeHead(200, {
+          'content-type': 'text/csv; charset=utf-8',
+          'content-length': Buffer.byteLength(csv),
+        });
+        res.end(csv);
+        return;
+      }
 
       if (segments[0] !== 'tasks') {
         sendJson(res, 404, { error: `Not found: ${req.method} ${url.pathname}` });

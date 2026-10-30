@@ -101,6 +101,17 @@ Query parameters:
 Response: `200 OK` with an array of tasks, `400 Bad Request` if `sort` is
 present and isn't `"priority"` or `"due"`.
 
+### `GET /tasks.csv`
+
+Export all tasks as CSV, in the same order as `GET /tasks` with no query
+parameters (query parameters are ignored on this endpoint).
+
+Response: `200 OK` with `Content-Type: text/csv; charset=utf-8`. The first
+line is the header row `id,title,completed,due,priority,tags,note`, followed
+by one row per task. `tags` is rendered as the task's tags joined with `;`.
+A `title` or `note` containing a comma, a double quote, or a line break is
+quoted and escaped per CSV rules (RFC 4180).
+
 ### `PATCH /tasks/:id`
 
 Update a task's `completed` status, `due` date, `priority`, `tags`, `note`,
