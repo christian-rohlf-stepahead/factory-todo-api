@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, readdir, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
@@ -251,68 +251,107 @@ test('AC6/AC10: GET /tasks.csv responds 200 OK with only the header row when the
   );
 });
 
-test('AC7: GET /tasks.csv reflects the same todos GET /tasks returns when the API is backed by Postgres', async (t) => {
-  const ctx = await startPgTestServer();
-  t.after(() => stop(ctx));
+// AC7 requires the endpoint to work "whether the API is backed by the JSON
+// file store or Postgres": a test parameterized to only one backend would
+// stay green if a regression broke just the other one, so each backend gets
+// its own independently-named test below.
+const BACKENDS = [
+  { label: 'the JSON file store', start: startJsonTestServer },
+  { label: 'Postgres', start: startPgTestServer },
+];
 
-  const a = (
-    await request(ctx.socketPath, {
-      method: 'POST',
-      path: '/tasks',
-      body: { title: 'Buy milk', due: '2026-11-01', priority: 'high', tags: ['home'], note: 'From Postgres' },
-    })
-  ).json();
-  const b = (await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Walk dog' } })).json();
+for (const backend of BACKENDS) {
+  test(`AC7: GET /tasks.csv reflects the same todos GET /tasks returns when the API is backed by ${backend.label}`, async (t) => {
+    const ctx = await backend.start();
+    t.after(() => stop(ctx));
 
-  const jsonList = (await request(ctx.socketPath, { path: '/tasks' })).json();
-  const res = await request(ctx.socketPath, { path: '/tasks.csv' });
+    const a = (
+      await request(ctx.socketPath, {
+        method: 'POST',
+        path: '/tasks',
+        body: { title: 'Buy milk', due: '2026-11-01', priority: 'high', tags: ['home'], note: 'From the store' },
+      })
+    ).json();
+    const b = (
+      await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Walk dog' } })
+    ).json();
 
-  assert.equal(res.status, 200);
-  assert.equal(res.headers['content-type'], 'text/csv; charset=utf-8');
-  const lines = res.text.trim().split('\n');
-  assert.equal(lines[0], HEADER_ROW);
-  assert.equal(lines.length, 1 + jsonList.length);
+    const jsonList = (await request(ctx.socketPath, { path: '/tasks' })).json();
+    const res = await request(ctx.socketPath, { path: '/tasks.csv' });
 
-  const expectedRowA = [a.id, 'Buy milk', 'false', '2026-11-01', 'high', 'home', 'From Postgres'].join(',');
-  const expectedRowB = [b.id, 'Walk dog', 'false', '', 'normal', '', ''].join(',');
-  assert.ok(res.text.includes(expectedRowA));
-  assert.ok(res.text.includes(expectedRowB));
-});
+    assert.equal(res.status, 200);
+    assert.equal(res.headers['content-type'], 'text/csv; charset=utf-8');
+    const lines = res.text.trim().split('\n');
+    assert.equal(lines[0], HEADER_ROW);
+    assert.equal(lines.length, 1 + jsonList.length);
 
-test('AC7: GET /tasks.csv reflects a deletion made through the API immediately, when backed by Postgres', async (t) => {
-  const ctx = await startPgTestServer();
-  t.after(() => stop(ctx));
+    const expectedRowA = [a.id, 'Buy milk', 'false', '2026-11-01', 'high', 'home', 'From the store'].join(',');
+    const expectedRowB = [b.id, 'Walk dog', 'false', '', 'normal', '', ''].join(',');
+    assert.ok(res.text.includes(expectedRowA));
+    assert.ok(res.text.includes(expectedRowB));
+  });
 
-  const created = (
-    await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Buy milk' } })
-  ).json();
-  await request(ctx.socketPath, { method: 'DELETE', path: `/tasks/${created.id}` });
+  test(`AC7: GET /tasks.csv reflects a deletion made through the API immediately, when backed by ${backend.label}`, async (t) => {
+    const ctx = await backend.start();
+    t.after(() => stop(ctx));
 
-  const res = await request(ctx.socketPath, { path: '/tasks.csv' });
+    const created = (
+      await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Buy milk' } })
+    ).json();
+    await request(ctx.socketPath, { method: 'DELETE', path: `/tasks/${created.id}` });
 
-  assert.equal(res.status, 200);
-  assert.deepEqual(
-    res.text.split('\n').filter((line) => line.length > 0),
-    [HEADER_ROW],
-  );
-});
+    const res = await request(ctx.socketPath, { path: '/tasks.csv' });
 
-test('AC8: csv-stringify is listed as a dependency in package.json and is used to build the CSV body', async () => {
+    assert.equal(res.status, 200);
+    assert.deepEqual(
+      res.text.split('\n').filter((line) => line.length > 0),
+      [HEADER_ROW],
+    );
+  });
+}
+
+test('AC8: csv-stringify is listed as a dependency in package.json', async () => {
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.ok(
     typeof pkg.dependencies?.['csv-stringify'] === 'string',
     'expected "csv-stringify" to be listed under dependencies in package.json',
   );
+});
 
-  const srcDir = new URL('../src/', import.meta.url);
-  const srcFiles = await readdir(srcDir);
-  const srcContents = await Promise.all(
-    srcFiles.filter((name) => name.endsWith('.js')).map((name) => readFile(new URL(name, srcDir), 'utf8')),
-  );
-  assert.ok(
-    srcContents.some((contents) => /from\s+['"]csv-stringify/.test(contents)),
-    'expected a file under src/ to build the CSV body with the csv-stringify package',
-  );
+test('AC8: GET /tasks.csv\'s body is byte-for-byte what csv-stringify produces for the same records (no hand-written CSV encoder)', async (t) => {
+  // Rather than checking for an import statement's text (which a hand-written
+  // encoder could satisfy by importing the package and never calling it),
+  // this feeds the same records through the real csv-stringify library and
+  // demands the HTTP response match its output exactly, including its
+  // specific quoting and line-ending behaviour — something only actually
+  // calling the library (not a hand-rolled lookalike) can be relied on to do.
+  const { stringify } = await import('csv-stringify/sync');
+
+  const ctx = await startJsonTestServer();
+  t.after(() => stop(ctx));
+
+  const created = (
+    await request(ctx.socketPath, {
+      method: 'POST',
+      path: '/tasks',
+      body: {
+        title: 'Buy milk, "whole" and\nsoy',
+        due: '2026-11-01',
+        priority: 'high',
+        tags: ['home', 'urgent'],
+        note: 'Ask Sam, he said "no rush"\nbut check anyway',
+      },
+    })
+  ).json();
+
+  const res = await request(ctx.socketPath, { path: '/tasks.csv' });
+
+  const expectedBody = stringify([
+    ['id', 'title', 'completed', 'due', 'priority', 'tags', 'note'],
+    [created.id, created.title, 'false', '2026-11-01', 'high', 'home;urgent', created.note],
+  ]);
+
+  assert.equal(res.text, expectedBody);
 });
 
 test('AC9: README documents GET /tasks.csv, its content type and header columns, alongside the existing endpoints', async () => {
@@ -323,8 +362,6 @@ test('AC9: README documents GET /tasks.csv, its content type and header columns,
   const nextSection = readme.indexOf('\n### `', start + 1);
   const section = nextSection === -1 ? readme.slice(start) : readme.slice(start, nextSection);
 
-  assert.match(section, /GET/);
-  assert.match(section, /\/tasks\.csv/);
   assert.match(section, /text\/csv/);
   assert.match(section, /id,\s*title,\s*completed,\s*due,\s*priority,\s*tags,\s*note/);
 });
