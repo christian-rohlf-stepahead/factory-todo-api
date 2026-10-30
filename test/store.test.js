@@ -60,7 +60,7 @@ test('lists all tasks with id, title, completion status and due date', async () 
   const tasks = store.list();
 
   assert.equal(tasks.length, 2);
-  assert.deepEqual(Object.keys(tasks[0]).sort(), ['completed', 'due', 'id', 'priority', 'tags', 'title']);
+  assert.deepEqual(Object.keys(tasks[0]).sort(), ['completed', 'due', 'id', 'note', 'priority', 'tags', 'title']);
 });
 
 test('creates a task with a default tags of an empty array', async () => {
@@ -351,7 +351,7 @@ test('persists tasks to the JSON file so they survive a restart', async () => {
   const second = new TaskStore(dbPath);
   await second.load();
   assert.deepEqual(second.list(), [
-    { id: task.id, title: 'Buy milk', completed: true, due: null, priority: 'normal', tags: [] },
+    { id: task.id, title: 'Buy milk', completed: true, due: null, priority: 'normal', tags: [], note: '' },
   ]);
 });
 
@@ -363,7 +363,7 @@ test('loads pre-existing tasks written before due dates existed, defaulting due 
   await store.load();
 
   assert.deepEqual(store.list(), [
-    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [], note: '' },
   ]);
 });
 
@@ -378,7 +378,7 @@ test('loads pre-existing tasks written before priorities existed, defaulting pri
   await store.load();
 
   assert.deepEqual(store.list(), [
-    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [], note: '' },
   ]);
 });
 
@@ -395,7 +395,7 @@ test('loads pre-existing tasks written before tags existed, defaulting tags to a
   await store.load();
 
   assert.deepEqual(store.list(), [
-    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
+    { id: 'legacy-1', title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [], note: '' },
   ]);
 });
 

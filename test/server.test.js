@@ -80,7 +80,7 @@ test('GET /tasks lists all tasks with id, title, status and due date', async (t)
 
   assert.equal(res.status, 200);
   assert.equal(body.length, 1);
-  assert.deepEqual(Object.keys(body[0]).sort(), ['completed', 'due', 'id', 'priority', 'tags', 'title']);
+  assert.deepEqual(Object.keys(body[0]).sort(), ['completed', 'due', 'id', 'note', 'priority', 'tags', 'title']);
   assert.equal(body[0].due, null);
   assert.equal(body[0].priority, 'normal');
   assert.deepEqual(body[0].tags, []);
@@ -989,7 +989,7 @@ test('tasks survive a server restart against the same JSON file', async (t) => {
   try {
     const list = (await request(socketPath2, { path: '/tasks' })).json();
     assert.deepEqual(list, [
-      { id: created.id, title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [] },
+      { id: created.id, title: 'Buy milk', completed: false, due: null, priority: 'normal', tags: [], note: '' },
     ]);
   } finally {
     second.closeAllConnections();
