@@ -15,3 +15,10 @@ spec:
                 name: {{ .Release.Name }}-api
                 port:
                   number: 3000
+          - path: /pgadmin/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-pgadmin
+                port:
+                  number: 8080

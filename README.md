@@ -40,6 +40,23 @@ PORT=4000 DATABASE_URL=postgres://user:pass@localhost:5432/todo npm start
 npm test
 ```
 
+## pgAdmin
+
+The Helm chart (`deploy/chart`) deploys a pgAdmin 4 instance alongside the
+API, reachable at the API host plus `/pgadmin/` (e.g.
+`https://<api-host>/pgadmin/`). It comes with the todo Postgres database
+pre-registered as a server, so only the Postgres password is needed to
+connect — no host, port, database, or username to enter.
+
+Login:
+
+- Email: `admin@example.com`
+- Password: `admin`
+
+These are hardcoded placeholder values. They, and the Postgres password used
+to connect to the pre-registered server, must be replaced before any use
+beyond local testing/development.
+
 ## API
 
 All request and response bodies are JSON. A task has the shape:
