@@ -263,3 +263,107 @@ test('AC1/AC2/AC3: every workload the chart creates follows the restricted Pod S
     assertRestrictedPodSecurity(doc.text, doc.file);
   }
 });
+
+test('AC1: pgAdmin is deployed via its own Deployment, unconditionally, in every environment the chart deploys to', () => {
+  const docs = chartDocuments();
+  const pgadminDoc = docsOfKind(docs, 'Deployment').find((d) => /pgadmin/i.test(d.text));
+  assert.ok(pgadminDoc, 'a Deployment for pgAdmin must exist');
+
+  // Unlike the web UI and web terminal (optional, gated on a built image being
+  // available), pgAdmin has no image of its own to build and must come up in
+  // every environment, so it must not be wrapped in an {{- if ... }} guard.
+  assert.doesNotMatch(
+    pgadminDoc.text.trim(),
+    /^\{\{-?\s*if\b/,
+    'pgAdmin must not be gated behind an optional value the way the web UI and web terminal are',
+  );
+});
+
+test('AC1: pgAdmin gets its own Service in the chart', () => {
+  const docs = chartDocuments();
+  const pgadminService = docsOfKind(docs, 'Service').find((d) => /pgadmin/i.test(d.text));
+  assert.ok(pgadminService, 'a Service for pgAdmin must exist');
+});
+
+test('AC1: pgAdmin\'s login is sourced from a Kubernetes Secret with placeholder values, not set inline', () => {
+  const docs = chartDocuments();
+  const secrets = docsOfKind(docs, 'Secret');
+  const pgadminSecret = secrets.find((d) => /PGADMIN_DEFAULT_EMAIL/.test(d.text) || /pgadmin/i.test(d.file));
+  assert.ok(pgadminSecret, 'a Secret holding the pgAdmin login must exist');
+  assert.match(pgadminSecret.text, /PGADMIN_DEFAULT_EMAIL/, 'the Secret must set PGADMIN_DEFAULT_EMAIL');
+  assert.match(pgadminSecret.text, /PGADMIN_DEFAULT_PASSWORD/, 'the Secret must set PGADMIN_DEFAULT_PASSWORD');
+
+  const pgadminDoc = docsOfKind(docs, 'Deployment').find((d) => /pgadmin/i.test(d.text));
+  assert.ok(pgadminDoc, 'a Deployment for pgAdmin must exist');
+  assert.match(
+    pgadminDoc.text,
+    /name:\s*PGADMIN_DEFAULT_EMAIL[\s\S]{0,120}secretKeyRef/,
+    'the pgAdmin Deployment must read PGADMIN_DEFAULT_EMAIL from the Secret, not set it inline',
+  );
+  assert.match(
+    pgadminDoc.text,
+    /name:\s*PGADMIN_DEFAULT_PASSWORD[\s\S]{0,120}secretKeyRef/,
+    'the pgAdmin Deployment must read PGADMIN_DEFAULT_PASSWORD from the Secret, not set it inline',
+  );
+});
+
+test('AC1: the API host\'s ingress gains a /pgadmin/ path to pgAdmin, alongside its existing / path which stays unchanged', () => {
+  const docs = chartDocuments();
+  const apiHostIngresses = docsOfKind(docs, 'Ingress').filter((d) => /\.Values\.api\.host/.test(d.text));
+  assert.ok(apiHostIngresses.length > 0, 'an Ingress routed at .Values.api.host must exist');
+  const combined = apiHostIngresses.map((d) => d.text).join('\n');
+
+  assert.match(combined, /path:\s*\/pgadmin\/?/, 'the API host must gain a path rule for /pgadmin/');
+  assert.match(
+    combined,
+    /path:\s*\/pgadmin\/?[\s\S]{0,160}name:\s*\{\{\s*\.Release\.Name\s*\}\}-pgadmin/,
+    'the /pgadmin/ path must route to the pgadmin Service',
+  );
+
+  // The existing root path, to the api Service on port 3000, must remain exactly as it was.
+  assert.match(
+    combined,
+    /path:\s*\/\s*\n\s*pathType:\s*Prefix\s*\n\s*backend:\s*\n\s*service:\s*\n\s*name:\s*\{\{\s*\.Release\.Name\s*\}\}-api\s*\n\s*port:\s*\n\s*number:\s*3000/,
+    'the existing / path to the api Service on port 3000 must stay untouched',
+  );
+});
+
+test('AC2: README documents the pgAdmin URL and its hardcoded login, noting both must be replaced before any use beyond local testing/development', () => {
+  const readme = readFile('README.md');
+  assert.ok(readme, 'README.md must exist');
+
+  const idx = readme.search(/pgadmin/i);
+  assert.notEqual(idx, -1, 'README must document pgAdmin');
+  const section = readme.slice(idx, idx + 2000);
+
+  assert.match(section, /\/pgadmin\//, 'README must document the pgAdmin URL as the API host plus /pgadmin/');
+  assert.match(section, /@/, 'README must document the hardcoded pgAdmin login (an email-style username)');
+  assert.match(section, /password/i, 'README must document the hardcoded pgAdmin password');
+  assert.match(
+    section,
+    /replac/i,
+    'README must note the hardcoded login must be replaced before any use beyond local testing/development',
+  );
+  assert.match(
+    section,
+    /local (testing|development)|testing(\s*(and|\/)\s*development)?/i,
+    'README must scope the note to local testing/development',
+  );
+});
+
+test('AC3: pgAdmin\'s pod runs under the same restricted Pod Security profile as every other pod in the chart', () => {
+  const docs = chartDocuments();
+  const pgadminDoc = docsOfKind(docs, 'Deployment').find((d) => /pgadmin/i.test(d.text));
+  assert.ok(pgadminDoc, 'a Deployment for pgAdmin must exist');
+  assertRestrictedPodSecurity(pgadminDoc.text, pgadminDoc.file);
+});
+
+test('AC3: pgAdmin listens on a port above 1024, per the namespace\'s restricted Pod Security rules', () => {
+  const docs = chartDocuments();
+  const pgadminDoc = docsOfKind(docs, 'Deployment').find((d) => /pgadmin/i.test(d.text));
+  assert.ok(pgadminDoc, 'a Deployment for pgAdmin must exist');
+
+  const portMatch = pgadminDoc.text.match(/containerPort:\s*(\d+)/);
+  assert.ok(portMatch, 'the pgAdmin container must declare a containerPort');
+  assert.ok(Number(portMatch[1]) > 1024, 'pgAdmin must listen on a port above 1024, not its image\'s default of 80');
+});
