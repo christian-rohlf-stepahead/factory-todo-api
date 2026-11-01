@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-pgadmin
+  labels:
+    app: {{ .Release.Name }}-pgadmin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-pgadmin
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-pgadmin
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 5050
+        runAsGroup: 5050
+        fsGroup: 5050
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pgadmin
+          image: {{ .Values.pgadmin.image | quote }}
+          ports:
+            - containerPort: 5050
+          env:
+            - name: PGADMIN_LISTEN_PORT
+              value: "5050"
+            - name: PGADMIN_DISABLE_POSTFIX
+              value: "true"
+            - name: PGADMIN_DEFAULT_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-pgadmin
+                  key: PGADMIN_DEFAULT_EMAIL
+            - name: PGADMIN_DEFAULT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-pgadmin
+                  key: PGADMIN_DEFAULT_PASSWORD
+          volumeMounts:
+            - name: servers-json
+              mountPath: /pgadmin4/servers.json
+              subPath: servers.json
+            - name: pgadmin-data
+              mountPath: /var/lib/pgadmin
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5050
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
+      volumes:
+        - name: servers-json
+          configMap:
+            name: {{ .Release.Name }}-pgadmin-servers
+        - name: pgadmin-data
+          emptyDir: {}

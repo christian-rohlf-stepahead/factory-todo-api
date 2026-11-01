@@ -9,4 +9,5 @@ helm upgrade --install todo-api /chart \
   --set "web.image=${FACTORY_IMAGE_TODO_WEB_WEB:-}" \
   --set "web.host=${FACTORY_HOST_TODO_WEB:-}" \
   --set "webTerminal.image=${FACTORY_IMAGE_TODO_CLI_WEB:-}" \
-  --set "webTerminal.host=${FACTORY_HOST_TODO_CLI:-}"
+  --set "webTerminal.host=${FACTORY_HOST_TODO_CLI:-}" \
+  --set "pgadmin.image=$FACTORY_IMAGE_TODO_API_PGADMIN"
