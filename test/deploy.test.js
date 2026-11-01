@@ -7,7 +7,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { load as loadYaml } from 'js-yaml';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -271,12 +273,16 @@ test('AC1: pgAdmin is deployed via its own Deployment, unconditionally, in every
 
   // Unlike the web UI and web terminal (optional, gated on a built image being
   // available), pgAdmin has no image of its own to build and must come up in
-  // every environment, so it must not be wrapped in an {{- if ... }} guard.
-  assert.doesNotMatch(
-    pgadminDoc.text.trim(),
-    /^\{\{-?\s*if\b/,
-    'pgAdmin must not be gated behind an optional value the way the web UI and web terminal are',
-  );
+  // every environment, so none of its chart resources may be wrapped in an
+  // {{- if ... }} guard anywhere in their template (not just at the very top).
+  const pgadminDocs = docs.filter((d) => /pgadmin/i.test(d.text));
+  for (const doc of pgadminDocs) {
+    assert.doesNotMatch(
+      doc.text,
+      /\{\{-?\s*if\b/,
+      `${doc.file}: pgAdmin must not be gated behind an optional value the way the web UI and web terminal are`,
+    );
+  }
 });
 
 test('AC1: pgAdmin gets its own Service in the chart', () => {
@@ -285,26 +291,17 @@ test('AC1: pgAdmin gets its own Service in the chart', () => {
   assert.ok(pgadminService, 'a Service for pgAdmin must exist');
 });
 
-test('AC1: pgAdmin\'s login is sourced from a Kubernetes Secret with placeholder values, not set inline', () => {
+test('AC1: pgAdmin\'s Deployment sets the admin login it needs to start, matching the login documented in the README', () => {
+  // AC1 only requires pgAdmin to come up; it needs PGADMIN_DEFAULT_EMAIL and
+  // PGADMIN_DEFAULT_PASSWORD set to start at all (the dpage/pgadmin4 image
+  // refuses to boot without them). How those values are supplied (Secret,
+  // ConfigMap, or otherwise) is the work item's own plan, not something AC1,
+  // AC2 or AC3 pins, so this only checks the env vars are present.
   const docs = chartDocuments();
-  const secrets = docsOfKind(docs, 'Secret');
-  const pgadminSecret = secrets.find((d) => /PGADMIN_DEFAULT_EMAIL/.test(d.text) || /pgadmin/i.test(d.file));
-  assert.ok(pgadminSecret, 'a Secret holding the pgAdmin login must exist');
-  assert.match(pgadminSecret.text, /PGADMIN_DEFAULT_EMAIL/, 'the Secret must set PGADMIN_DEFAULT_EMAIL');
-  assert.match(pgadminSecret.text, /PGADMIN_DEFAULT_PASSWORD/, 'the Secret must set PGADMIN_DEFAULT_PASSWORD');
-
   const pgadminDoc = docsOfKind(docs, 'Deployment').find((d) => /pgadmin/i.test(d.text));
   assert.ok(pgadminDoc, 'a Deployment for pgAdmin must exist');
-  assert.match(
-    pgadminDoc.text,
-    /name:\s*PGADMIN_DEFAULT_EMAIL[\s\S]{0,120}secretKeyRef/,
-    'the pgAdmin Deployment must read PGADMIN_DEFAULT_EMAIL from the Secret, not set it inline',
-  );
-  assert.match(
-    pgadminDoc.text,
-    /name:\s*PGADMIN_DEFAULT_PASSWORD[\s\S]{0,120}secretKeyRef/,
-    'the pgAdmin Deployment must read PGADMIN_DEFAULT_PASSWORD from the Secret, not set it inline',
-  );
+  assert.match(pgadminDoc.text, /name:\s*PGADMIN_DEFAULT_EMAIL/, 'the pgAdmin Deployment must set PGADMIN_DEFAULT_EMAIL');
+  assert.match(pgadminDoc.text, /name:\s*PGADMIN_DEFAULT_PASSWORD/, 'the pgAdmin Deployment must set PGADMIN_DEFAULT_PASSWORD');
 });
 
 test('AC1: the API host\'s ingress gains a /pgadmin/ path to pgAdmin, alongside its existing / path which stays unchanged', () => {
@@ -328,6 +325,42 @@ test('AC1: the API host\'s ingress gains a /pgadmin/ path to pgAdmin, alongside 
   );
 });
 
+test('AC1: adding pgAdmin does not modify the API\'s, the web UI\'s, or the web terminal\'s Deployment, Service, or Ingress templates', () => {
+  const docs = chartDocuments();
+  const pgadminDoc = docsOfKind(docs, 'Deployment').find((d) => /pgadmin/i.test(d.text));
+  assert.ok(pgadminDoc, 'a Deployment for pgAdmin must exist, deployed alongside the untouched components below');
+
+  // Byte-for-byte snapshots of every template AC1 says must keep "working
+  // exactly as before", taken before this work item's build starts. The
+  // API's Ingress is excluded because AC1 requires it to gain the new
+  // /pgadmin/ path rule; its unchanged / rule is pinned by the test above.
+  const unchangedFiles = {
+    'deploy/chart/templates/api-deployment.yaml':
+      '846b2cfc19c94bd3149747ba2b1f78fed5a00e928cd7ecf59625b371d81925d5',
+    'deploy/chart/templates/api-service.yaml':
+      '6502e2a10de0c00d9e30e17a4f0f9e8322284de244ee14f4b75a44d53b389ddd',
+    'deploy/chart/templates/web-deployment.yaml':
+      'de74561b49b71ec7cf872c3ab714e41ccdde7fb95ac71e2c2a7fcc995a051983',
+    'deploy/chart/templates/web-service.yaml':
+      'a55fe5694f34349d4f40bbe383ccec4be04f6eeaf5abc567440b6016bfd6af67',
+    'deploy/chart/templates/web-ingress.yaml':
+      '2ff453076817e571c80b843ec5fbd853c865f0eb4911e0347e05f2334afe4b31',
+    'deploy/chart/templates/webterminal-deployment.yaml':
+      'bfc9059fd374840ce292acf2178649fb92c620aa309838898b8edea9eba21b3e',
+    'deploy/chart/templates/webterminal-service.yaml':
+      '49d41c129077f2402d966401987f320dffd635bb5a3854b084f9e33f040cb6ca',
+    'deploy/chart/templates/webterminal-ingress.yaml':
+      '8a597c109587e32b531a637a5f3e10e6b1ae0a371976ce66ed4fda8eebdafd22',
+  };
+
+  for (const [relPath, expectedHash] of Object.entries(unchangedFiles)) {
+    const text = readFile(relPath);
+    assert.ok(text, `${relPath} must still exist`);
+    const actualHash = crypto.createHash('sha256').update(text).digest('hex');
+    assert.equal(actualHash, expectedHash, `${relPath} must not change while adding pgAdmin`);
+  }
+});
+
 test('AC2: README documents the pgAdmin URL and its hardcoded login, noting both must be replaced before any use beyond local testing/development', () => {
   const readme = readFile('README.md');
   assert.ok(readme, 'README.md must exist');
@@ -346,7 +379,7 @@ test('AC2: README documents the pgAdmin URL and its hardcoded login, noting both
   );
   assert.match(
     section,
-    /local (testing|development)|testing(\s*(and|\/)\s*development)?/i,
+    /local\s+(?:testing(?:\s*(?:and|\/)\s*development)?|development)/i,
     'README must scope the note to local testing/development',
   );
 });
@@ -366,4 +399,47 @@ test('AC3: pgAdmin listens on a port above 1024, per the namespace\'s restricted
   const portMatch = pgadminDoc.text.match(/containerPort:\s*(\d+)/);
   assert.ok(portMatch, 'the pgAdmin container must declare a containerPort');
   assert.ok(Number(portMatch[1]) > 1024, 'pgAdmin must listen on a port above 1024, not its image\'s default of 80');
+});
+
+test('AC3: every chart template pgAdmin adds is syntactically valid YAML, so `helm upgrade` can parse and apply it', () => {
+  const docs = chartDocuments();
+  const pgadminDocs = docs.filter((d) => /pgadmin/i.test(d.text));
+  assert.ok(pgadminDocs.length > 0, 'at least one chart template for pgAdmin must exist');
+
+  for (const doc of pgadminDocs) {
+    // Drop pure Go-template control-flow lines (if/end/else/range/with), then
+    // replace any remaining {{ ... }} expression with a placeholder scalar,
+    // so the file's indentation and structure can be checked as plain YAML
+    // without needing a real Helm/Go-template engine (unavailable here).
+    const withoutControlLines = doc.text
+      .split('\n')
+      .filter((line) => !/^\s*\{\{-?\s*(if|end|else|range|with)\b.*-?\}\}\s*$/.test(line))
+      .join('\n');
+    const rendered = withoutControlLines.replace(/\{\{-?[\s\S]*?-?\}\}/g, 'PLACEHOLDER');
+
+    assert.doesNotThrow(
+      () => loadYaml(rendered),
+      `${doc.file} must be syntactically valid YAML once its Helm template expressions are substituted out`,
+    );
+  }
+});
+
+test('AC3: pgAdmin\'s chart resources do not collide, in kind and name, with any existing resource, so `helm upgrade` can apply them', () => {
+  const docs = chartDocuments();
+
+  function kindAndName(text) {
+    const kindMatch = text.match(/kind:\s*(\w+)/);
+    const nameMatch = text.match(/metadata:\s*\n(?:.*\n)*?\s*name:\s*(.+)/);
+    return kindMatch && nameMatch ? `${kindMatch[1]}/${nameMatch[1].trim()}` : null;
+  }
+
+  const allKeys = docs.map((d) => ({ file: d.file, key: kindAndName(d.text) })).filter((d) => d.key);
+  const pgadminKeys = allKeys.filter((d) => /pgadmin/i.test(d.key));
+  assert.ok(pgadminKeys.length > 0, 'at least one chart resource for pgAdmin must exist');
+
+  const counts = new Map();
+  for (const { key } of allKeys) counts.set(key, (counts.get(key) || 0) + 1);
+  for (const { file, key } of pgadminKeys) {
+    assert.equal(counts.get(key), 1, `${file}: ${key} must not collide with another chart resource of the same kind and name`);
+  }
 });
