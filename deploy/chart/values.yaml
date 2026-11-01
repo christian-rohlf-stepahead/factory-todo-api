@@ -20,4 +20,4 @@ webTerminal:
   port: 3000
 
 pgadmin:
-  image: dpage/pgadmin4:8
+  image: ""

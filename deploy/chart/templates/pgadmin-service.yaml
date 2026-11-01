@@ -6,5 +6,5 @@ spec:
   selector:
     app: {{ .Release.Name }}-pgadmin
   ports:
-    - port: 8080
-      targetPort: 8080
+    - port: 5050
+      targetPort: 5050

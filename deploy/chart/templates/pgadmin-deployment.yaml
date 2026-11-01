@@ -16,19 +16,21 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1001
-        runAsGroup: 1001
-        fsGroup: 1001
+        runAsUser: 5050
+        runAsGroup: 5050
+        fsGroup: 5050
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: pgadmin
           image: {{ .Values.pgadmin.image | quote }}
           ports:
-            - containerPort: 8080
+            - containerPort: 5050
           env:
             - name: PGADMIN_LISTEN_PORT
-              value: "8080"
+              value: "5050"
+            - name: PGADMIN_DISABLE_POSTFIX
+              value: "true"
             - name: PGADMIN_DEFAULT_EMAIL
               valueFrom:
                 secretKeyRef:
@@ -48,7 +50,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /
-              port: 8080
+              port: 5050
             initialDelaySeconds: 10
             periodSeconds: 10
           securityContext:
