@@ -8,10 +8,24 @@ FROM dpage/pgadmin4:8.12
 # binary at all under Kubernetes' restricted profile (allowPrivilegeEscalation:
 # false sets no_new_privs, and execve() of a file with capabilities under
 # no_new_privs fails with EPERM) -- that's what crashes the pod. Strip it.
+#
+# The base image has no apt/dnf (no "apt-get", confirmed by a failed build),
+# so do this with the python3 interpreter the image already ships, walking
+# the filesystem and removing the "security.capability" xattr wherever it's
+# set, rather than depending on a setcap/libcap package that may not exist.
 USER root
-RUN apt-get update \
- && apt-get install -y --no-install-recommends libcap2-bin \
- && (getcap -r / 2>/dev/null | cut -d' ' -f1 | xargs -r -n1 setcap -r) \
- && apt-get purge -y --auto-remove libcap2-bin \
- && rm -rf /var/lib/apt/lists/*
+RUN printf '%s\n' \
+  "import os" \
+  "skip = {'/proc', '/sys', '/dev'}" \
+  "for root, dirs, files in os.walk('/'):" \
+  "    dirs[:] = [d for d in dirs if os.path.join(root, d) not in skip]" \
+  "    for name in files:" \
+  "        path = os.path.join(root, name)" \
+  "        try:" \
+  "            os.removexattr(path, 'security.capability')" \
+  "        except OSError:" \
+  "            pass" \
+  > /tmp/strip_caps.py \
+ && /venv/bin/python3 /tmp/strip_caps.py \
+ && rm /tmp/strip_caps.py
 USER 1001:0
