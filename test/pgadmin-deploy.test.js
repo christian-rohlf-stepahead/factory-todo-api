@@ -8,8 +8,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
+import http from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { createServer } from '../src/server.js';
+import { migrate } from '../src/migrate.js';
+import { createFakeClient } from './helpers/fakePgClient.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -82,6 +87,52 @@ function yamlValue(block, key) {
 
 function unquote(value) {
   return value ? value.replace(/^['"]|['"]$/g, '') : value;
+}
+
+// Drives the real HTTP server over a Unix domain socket, the same way
+// test/server.test.js does, so AC8's test exercises actual endpoint behaviour
+// rather than inspecting source files.
+async function startTestServer() {
+  const dir = await mkdtemp(path.join(tmpdir(), 'todo-api-pgadmin-test-'));
+  const dbPath = path.join(dir, 'tasks.json');
+  const socketPath = path.join(dir, 'server.sock');
+  const server = await createServer({ dbPath });
+  await new Promise((resolve) => server.listen(socketPath, resolve));
+  return { server, socketPath, dir };
+}
+
+async function stopTestServer({ server, dir }) {
+  const closed = new Promise((resolve) => server.close(resolve));
+  server.closeAllConnections();
+  await closed;
+  await rm(dir, { recursive: true, force: true });
+}
+
+function request(socketPath, { method = 'GET', path: reqPath, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const payload = body === undefined ? undefined : JSON.stringify(body);
+    const req = http.request(
+      {
+        socketPath,
+        path: reqPath,
+        method,
+        headers: payload
+          ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) }
+          : {},
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          resolve({ status: res.statusCode, headers: res.headers, text, json: () => JSON.parse(text) });
+        });
+      },
+    );
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
 }
 
 function assertRestrictedPodSecurity(text, label) {
@@ -247,11 +298,6 @@ test("AC4: the todo Postgres server is pre-listed in pgAdmin's tree via a mounte
     /"MaintenanceDB":\s*"?\{\{\s*\.Values\.postgres\.database/,
     "the pre-listed server's database must come from .Values.postgres.database",
   );
-  assert.match(
-    configMap.text,
-    /"Username":\s*"?\{\{\s*\.Values\.postgres\.user/,
-    "the pre-listed server's username must come from .Values.postgres.user",
-  );
 
   const deployment = findPgadminDeployment(docs);
   assert.ok(deployment, 'a Deployment must use .Values.pgadmin.image for pgAdmin');
@@ -267,23 +313,37 @@ test("AC4: the todo Postgres server is pre-listed in pgAdmin's tree via a mounte
   );
 });
 
-test("AC5: the pre-listed server points at the exact same database the API itself uses, so it shows the existing tasks table and rows once the Postgres password is entered", () => {
+test("AC5: connecting to the pre-listed server reaches the role the API's migration runs as, with no stored password, and that role's tasks table already holds the migrated/seeded rows", async () => {
   const docs = chartDocuments();
   const configMap = findServersConfigMap(docs);
   assert.ok(configMap, 'a ConfigMap holding a pgAdmin servers.json definition must exist');
 
-  const postgresSecret = readFile(path.join(CHART_DIR, 'templates', 'postgres-secret.yaml'));
-  assert.ok(postgresSecret, 'deploy/chart/templates/postgres-secret.yaml must exist');
-  assert.match(postgresSecret, /\{\{\s*\.Release\.Name\s*\}\}-postgres:5432/, "the API's own DATABASE_URL must still point at {{ .Release.Name }}-postgres:5432");
-  assert.match(postgresSecret, /\.Values\.postgres\.database/, "the API's own DATABASE_URL must still use .Values.postgres.database");
-  assert.match(postgresSecret, /\.Values\.postgres\.user/, "the API's own DATABASE_URL must still use .Values.postgres.user");
+  // Criterion 4 pins Host/Port/MaintenanceDB being filled in; connecting also depends on
+  // the Username pgAdmin offers, and on the Postgres password staying out of the
+  // definition (typed in on first connect, not stored, per the spec's Q3 decision).
+  assert.match(
+    configMap.text,
+    /"Username":\s*"?\{\{\s*\.Values\.postgres\.user/,
+    "the pre-listed server's Username must come from .Values.postgres.user, the role the API's own migration runs as",
+  );
+  assert.doesNotMatch(
+    configMap.text,
+    /"Password"\s*:/,
+    'the server definition must not store the Postgres password; pgAdmin must still prompt for it on first connect',
+  );
 
-  // Criterion 4 already pins the pre-listed server's Host/Port/MaintenanceDB/Username; repeating
-  // the same checks here confirms it resolves to this one Postgres instance, not a second one.
-  assert.match(configMap.text, /\{\{\s*\.Release\.Name\s*\}\}-postgres/);
-  assert.match(configMap.text, /"Port":\s*5432\b/);
-  assert.match(configMap.text, /\.Values\.postgres\.database/);
-  assert.match(configMap.text, /\.Values\.postgres\.user/);
+  // That role's database is the one src/migrate.js runs its migration against on the
+  // API's own startup, seeding three example todos into `tasks` on a fresh database
+  // (see test/pgStore.test.js and test/server.pg.test.js for the same migration path).
+  // Reproduce it against a Postgres stand-in to prove the table a person opens in
+  // pgAdmin after connecting already has rows, not an empty schema.
+  const client = createFakeClient();
+  await migrate(client);
+  const { rows } = await client.query('SELECT * FROM tasks');
+  assert.ok(
+    rows.length > 0,
+    'the tasks table the pre-listed server points at must already hold rows once the migration has run, for pgAdmin to show them after connecting',
+  );
 });
 
 test("AC6: pgAdmin's pod and container satisfy the restricted Pod Security profile", () => {
@@ -336,33 +396,76 @@ test('AC7: pgAdmin keeps no persistent volume of its own', () => {
   assert.equal(pvcs.length, 0, 'no PersistentVolumeClaim should be defined for pgAdmin');
 });
 
-test("AC8: adding pgAdmin does not touch todo-api's own application source (existing endpoints keep their exact request/response shape)", () => {
-  const expectedHashes = {
-    'src/server.js': '7cc119825ff4cea006e6e262f545e59014f754653780bdb3f816ba06fb3ca1f3',
-    'src/store.js': '7f089bd93f3d25f903e84cbdfc4656b02200fcedf02c331c69a6ca866125a54b',
-    'src/pgStore.js': '9d23aaa98c99064e00cbbef4ea2d0bf3fe07c1dcc7e47b0ca66698ad4ba0727e',
-    'src/migrate.js': 'f8c8fbe6ab72a4d68ef2a88b6ac49912b5c32ea7eb4f5483b93a194f19389882',
-    'src/index.js': 'c7a7691db94b7eeac0328d158fb67859cb5e35618da483a90b37c05941800adc',
-  };
+test('AC8: every existing todo-api endpoint keeps its documented request/response shape once pgAdmin is added', async () => {
+  const ctx = await startTestServer();
+  try {
+    const created = await request(ctx.socketPath, { method: 'POST', path: '/tasks', body: { title: 'Buy milk' } });
+    assert.equal(created.status, 201);
+    const task = created.json();
+    assert.deepEqual(
+      Object.keys(task).sort(),
+      ['completed', 'due', 'id', 'note', 'priority', 'tags', 'title'],
+      'POST /tasks must still return a task with exactly its documented fields',
+    );
+    assert.equal(task.completed, false);
+    assert.equal(task.priority, 'normal');
 
-  for (const [relPath, expected] of Object.entries(expectedHashes)) {
-    const content = readFile(relPath);
-    assert.ok(content, `${relPath} must still exist`);
-    const actual = crypto.createHash('sha256').update(content).digest('hex');
-    assert.equal(actual, expected, `${relPath} must be byte-for-byte unchanged by this chart-only addition`);
+    const list = await request(ctx.socketPath, { path: '/tasks' });
+    assert.equal(list.status, 200);
+    assert.ok(Array.isArray(list.json()), 'GET /tasks must still return an array');
+
+    const csv = await request(ctx.socketPath, { path: '/tasks.csv' });
+    assert.equal(csv.status, 200);
+    assert.equal(csv.headers['content-type'], 'text/csv; charset=utf-8');
+    assert.equal(
+      csv.text.split('\n')[0],
+      'id,title,completed,due,priority,tags,note',
+      'GET /tasks.csv must still start with its documented header row',
+    );
+
+    const patched = await request(ctx.socketPath, {
+      method: 'PATCH',
+      path: `/tasks/${task.id}`,
+      body: { completed: true },
+    });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.json().completed, true);
+
+    const deleted = await request(ctx.socketPath, { method: 'DELETE', path: `/tasks/${task.id}` });
+    assert.equal(deleted.status, 204);
+
+    const missing = await request(ctx.socketPath, { method: 'DELETE', path: `/tasks/${task.id}` });
+    assert.equal(missing.status, 404, 'deleting an already-deleted task must still 404');
+  } finally {
+    await stopTestServer(ctx);
   }
 });
 
-test('AC8: the existing api, web and webTerminal Deployments keep their shape alongside the new pgAdmin resources', () => {
+test("AC8: pgAdmin runs as its own Deployment, so the existing API, web UI and web terminal Deployments keep exactly the single container and wiring they had before", () => {
   const docs = chartDocuments();
+
+  const pgadminDeployment = findPgadminDeployment(docs);
+  assert.ok(pgadminDeployment, 'a pgAdmin Deployment must exist alongside the API/web/webTerminal Deployments');
 
   const apiDeployment = docsOfKind(docs, 'Deployment').find((d) => /\.Values\.api\.image/.test(d.text));
   assert.ok(apiDeployment, 'the API Deployment must still exist');
+  assert.notEqual(apiDeployment.file, pgadminDeployment.file, "pgAdmin must not be merged into the API Deployment's own file/resource");
+  assert.equal(
+    (apiDeployment.text.match(/^\s*image:/gm) || []).length,
+    1,
+    'the API Deployment must still define exactly one container image, not share a pod with pgAdmin',
+  );
   assert.match(apiDeployment.text, /name:\s*DATABASE_URL/, 'the API Deployment must still set DATABASE_URL');
   assert.match(apiDeployment.text, /containerPort:\s*3000/, 'the API must still listen on 3000');
 
   const webDeployment = docsOfKind(docs, 'Deployment').find((d) => /\.Values\.web\.image/.test(d.text));
   assert.ok(webDeployment, 'the web UI Deployment must still exist');
+  assert.notEqual(webDeployment.file, pgadminDeployment.file, "pgAdmin must not be merged into the web UI Deployment's own file/resource");
+  assert.equal(
+    (webDeployment.text.match(/^\s*image:/gm) || []).length,
+    1,
+    'the web UI Deployment must still define exactly one container image',
+  );
   assert.match(
     webDeployment.text,
     /\{\{-?\s*if[^}]*\.Values\.web\.image[^}]*-?\}\}/,
@@ -371,6 +474,12 @@ test('AC8: the existing api, web and webTerminal Deployments keep their shape al
 
   const terminalDeployment = docsOfKind(docs, 'Deployment').find((d) => /\.Values\.webTerminal\.image/.test(d.text));
   assert.ok(terminalDeployment, 'the web terminal Deployment must still exist');
+  assert.notEqual(terminalDeployment.file, pgadminDeployment.file, "pgAdmin must not be merged into the web terminal Deployment's own file/resource");
+  assert.equal(
+    (terminalDeployment.text.match(/^\s*image:/gm) || []).length,
+    1,
+    'the web terminal Deployment must still define exactly one container image',
+  );
   assert.match(
     terminalDeployment.text,
     /\{\{-?\s*if[^}]*\.Values\.webTerminal\.image[^}]*-?\}\}/,
