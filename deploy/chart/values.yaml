@@ -18,3 +18,9 @@ webTerminal:
   image: ""
   host: ""
   port: 3000
+
+pgadmin:
+  image: dpage/pgadmin4:8.12
+  host: ""
+  user: admin@todo.local
+  password: ChangeMe123

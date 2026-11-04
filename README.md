@@ -34,6 +34,24 @@ Configure these with environment variables:
 PORT=4000 DATABASE_URL=postgres://user:pass@localhost:5432/todo npm start
 ```
 
+## pgAdmin
+
+In every environment the deploy chart deploys to, it also runs
+[pgAdmin](https://www.pgadmin.org/) at its own ingress host, alongside
+`api`, `web` and the web terminal, for browsing the Postgres database
+behind todo-api. It is not part of running this repository locally.
+
+Log in with the hardcoded pgAdmin username `admin@todo.local` and password
+`ChangeMe123`. **This is a temporary, local/dev-only credential**, to be
+replaced once the product needs real authentication for pgAdmin — it is
+separate from the Postgres credentials below.
+
+On first login, the todo Postgres server is already listed in pgAdmin's
+tree, with its host, port and database name filled in. Connecting to it
+prompts for the Postgres password, which pgAdmin does not store: enter
+`todo` (the hardcoded `postgres.password` in `deploy/chart/values.yaml`),
+alongside the already-filled-in `todo` username.
+
 ## Running the tests
 
 ```sh
