@@ -41,7 +41,7 @@ In every environment the deploy chart deploys to, it also runs
 `api`, `web` and the web terminal, for browsing the Postgres database
 behind todo-api. It is not part of running this repository locally.
 
-Log in with the hardcoded pgAdmin username `admin@todo.local` and password
+Log in with the hardcoded pgAdmin username `admin@example.com` and password
 `ChangeMe123`. **This is a temporary, local/dev-only credential**, to be
 replaced once the product needs real authentication for pgAdmin — it is
 separate from the Postgres credentials below.

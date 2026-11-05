@@ -22,5 +22,5 @@ webTerminal:
 pgadmin:
   image: dpage/pgadmin4:8.12
   host: ""
-  user: admin@todo.local
+  user: admin@example.com
   password: ChangeMe123
